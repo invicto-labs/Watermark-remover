@@ -60,7 +60,8 @@ ZIP's SHA-256 with `Get-FileHash -Algorithm SHA256 <zip-path>`.
 
 The **Windows release** workflow in `.github/workflows/windows-release.yml`
 runs when a GitHub release is published, including a prerelease. It checks out
-that release's exact tag, uses Windows Server 2022 x64 and Python 3.12.14, and:
+that release's exact tag, uses Windows Server 2022 x64 and Python 3.12.10 (the
+last Python 3.12 Windows installer offered by setup-python), and:
 
 1. Checks the tag against the app version, runs every `test_*.py` regression test.
 2. Downloads both offline models and verifies their pinned hashes.
