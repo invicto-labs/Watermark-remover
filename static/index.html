@@ -1,18 +1,18 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ClearPage 1.8 · PDF cleanup</title><link rel="stylesheet" href="/static/style.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ClearPage 1.9 · PDF cleanup</title><link rel="stylesheet" href="/static/style.css"></head>
 <body>
 <header><a class="brand" href="/" aria-label="ClearPage home"><span class="logo">C</span>ClearPage</a><div class="header-right"><span class="local"><i></i> Files stay on this computer</span><button id="quit" class="quiet">Close app</button></div></header>
 <div class="app-shell">
- <nav class="steps" aria-label="Your progress"><div class="step active" id="step1"><b>1</b><span>Open PDF</span></div><span class="step-line"></span><div class="step" id="step2"><b>2</b><span>Clean &amp; check</span></div><span class="step-line"></span><div class="step" id="step3"><b>3</b><span>Save PDF</span></div></nav>
+ <nav class="steps" aria-label="Your progress"><div class="step active" id="step1"><b>1</b><span>Open file</span></div><span class="step-line"></span><div class="step" id="step2"><b>2</b><span>Clean &amp; check</span></div><span class="step-line"></span><div class="step" id="step3"><b>3</b><span>Save PDF</span></div></nav>
  <main>
  <section id="welcome">
-  <h1>Remove a PDF watermark</h1><p class="subhead">Open your file, check the result, and save a new copy.</p>
-  <label id="dropzone" for="file"><span class="file-icon" aria-hidden="true">↑</span><strong>Choose a PDF</strong><span>or drop your file here</span><small>Up to 150 MB · 300 pages</small></label><input id="file" type="file" accept="application/pdf,.pdf" hidden>
+  <h1>Clean a PDF or scanned image</h1><p class="subhead">Open your file, check the result, and save a new copy.</p>
+  <label id="dropzone" for="file"><span class="file-icon" aria-hidden="true">↑</span><strong>Choose a PDF or scan</strong><span>or drop your file here</span><small>PDF · JPG · PNG · TIFF · Up to 150 MB</small></label><input id="file" type="file" accept="application/pdf,image/jpeg,image/png,image/tiff,.pdf,.jpg,.jpeg,.png,.tif,.tiff" hidden>
   <p class="reassurance">Your original file stays unchanged.</p>
  </section>
  <section id="workspace" hidden>
-  <div class="document-bar"><div><h1 id="filename"></h1><p id="filemeta"></p></div><button id="reset" class="quiet">Open another PDF</button></div>
+  <div class="document-bar"><div><h1 id="filename"></h1><p id="filemeta"></p><p id="inputNote" class="hint"></p></div><button id="reset" class="quiet">Open another file</button></div>
   <div id="controls" hidden>
    <div class="process-actions action-card"><div><h2>Clean your PDF</h2><p id="simpleMethod">Ready to clean.</p></div><div class="button-row"><button id="preview" class="secondary">Try this page</button><button id="process" class="primary">Clean all pages</button></div></div>
 
@@ -34,7 +34,8 @@
 <tr><td>Another watermark, such as a small mark in an empty corner, that you can select yourself.</td><td>Paint a custom area</td></tr>
 <tr><td>White writing on black paper caused by an inverted scan.</td><td>Black page → white paper</td></tr></tbody></table></div><p class="guide-note">A PDF from another website may use a different watermark. Always try one page first; unsupported website overlays stay unchanged.</p></div>    <label for="method">PDF type</label><select id="method"><option value="overlay">Website PDF · Cook County / OKCountyRecords</option><option value="preset">Huntington County scan</option><option value="manual">Paint a custom area</option><option value="polarity">Black page → white paper</option></select><p id="methodHelp" class="hint choice-example" aria-live="polite">Removes recognized Cook County and OKCountyRecords overlays. Original scan pixels stay intact; unknown overlays stay unchanged.</p>
     <div id="brushTools" hidden><div class="brush-head"><label for="brushSize">Brush size</label><output id="brushValue">3%</output></div><input id="brushSize" type="range" min="1" max="12" value="3"><div class="button-row"><button id="erase" class="small">Eraser: off</button><button id="undo" class="small">Undo</button><button id="clearBrush" class="small">Clear selection</button></div><p class="hint">Example: for a small mark in an empty corner, use a small brush and paint only that mark. Eraser removes your selection, not the document. The same area is used on every page, so check each page.</p></div>
-    <div id="polarityTools" hidden><label><input id="forcePolarity" type="checkbox"> Invert this page even if not detected</label><p class="choice-example">Example: the scan has white writing on black paper. The app checks every page; normal pages stay unchanged. Use this override only for the page shown. It reverses all colors, including photos and stamps. Review and select corrected pages before saving. To remove a watermark as well, save the corrected copy and open it again.</p></div>
+    <label><input id="fixNegative" type="checkbox"> Fix black pages before watermark cleanup</label><p class="choice-example">Example: a scan has white writing on black paper and a watermark. Turn this on, choose the watermark type above, then clean all pages once. Normal pages are left as they are before cleanup. Review and select any color-corrected pages before saving.</p>
+    <div id="polarityTools" hidden><label><input id="forcePolarity" type="checkbox"> Invert this page even if not detected</label><p class="choice-example">Example: the scan has white writing on black paper. The app checks every page; normal pages stay unchanged. Use this override only for the page shown. It reverses all colors, including photos and stamps. Review and select corrected pages before saving. To fix colors and remove a watermark together, select the watermark type and turn on Fix black pages before watermark cleanup.</p></div>
     <label for="mode">Cleanup method</label><select id="mode"><option value="careful">Careful · protect nearby text</option><option value="light">Light · remove faint marks</option><option value="lama">AI repair · review text carefully</option></select><p id="modeHelp" class="hint choice-example" aria-live="polite">Preserves detected text lines and connected strokes. Some watermark fragments may remain.</p><p class="hint" id="aiHelp" hidden>LaMa runs locally at original preview resolution. It can reconstruct partial strokes, but may alter letters. AI pages start unchecked for export. Review each page before selecting it. This mode starts from the original; saved reviewed-page profiles are bypassed. Confirmed word repairs are retained.</p>
     <div class="reviewed-tools"><label><input id="useReviewed" type="checkbox" checked> Reuse reviewed repairs</label><button id="importReviewed" class="small wide">Add a reviewed PDF copy…</button><input id="reviewedFile" type="file" accept="application/pdf,.pdf" hidden><p class="hint">Use when you already have a checked, corrected copy of these exact pages. Example: reuse an approved repair on page 3 when opening the same page again. This does not transfer repairs to unrelated documents.</p></div>
     <label><input id="scanInversion" type="checkbox"> Reduce blended remnants · PureScan</label><p class="hint">Use for a repeating, partly transparent Huntington watermark. Example: faint diagonal words remain after Careful cleanup. Choose Huntington County with Careful or Light, then Clean all pages. This option cannot be combined with AI repair.</p>
@@ -64,5 +65,5 @@
  <div id="notice" role="status" aria-live="polite" hidden></div>
  </main>
 </div>
-<footer>ClearPage 1.8 <span>Works offline · Saves a separate copy</span></footer>
+<footer>ClearPage 1.9 <span>Works offline · Saves a separate copy</span></footer>
 <script src="/static/app.js"></script><script src="/static/repair.js"></script></body></html>

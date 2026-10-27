@@ -18,6 +18,13 @@ models/
 
 # Customer documents, repair libraries, sessions, and local credentials
 *.pdf
+*.tif
+*.tiff
+*.jpg
+*.jpeg
+*.png
+!static/**
+!assets/**
 *.npz
 reviewed-pages/
 ClearPage-*/

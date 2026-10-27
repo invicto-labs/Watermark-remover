@@ -29,6 +29,7 @@ import text_restore
 import pdf_overlays
 import page_polarity
 import quality_check
+import scan_input
 
 BASE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 TOKEN = secrets.token_urlsafe(32)
@@ -68,7 +69,7 @@ def headers(response):
 
 @app.errorhandler(413)
 def too_large(error):
-    return jsonify(error='The file is too large. Maximum PDF size is 150 MB.'), 413
+    return jsonify(error='The file is too large. Maximum file size is 150 MB.'), 413
 
 
 @app.errorhandler(ValueError)
@@ -82,7 +83,7 @@ def failure(error):
     if isinstance(error, HTTPException):
         return jsonify(error=error.description), error.code
     # Do not expose file paths or document content through error traces.
-    return jsonify(error='Unable to read or process this PDF. Try a valid, unlocked scanned PDF.'), 400
+    return jsonify(error='Unable to read or process this file. Try an unlocked PDF or a valid JPG, PNG or TIFF scan.'), 400
 
 
 def job_for(identifier):
@@ -92,7 +93,7 @@ def job_for(identifier):
 
 
 def public(job):
-    return {key: job[key] for key in ('id', 'name', 'count', 'size', 'options', 'state', 'progress', 'message', 'results', 'overlays') if key in job}
+    return {key: job[key] for key in ('id', 'name', 'count', 'size', 'options', 'state', 'progress', 'message', 'results', 'overlays', 'input_type', 'input_note') if key in job}
 
 
 def image_path(job, index, after=False):
@@ -106,6 +107,46 @@ def original(job, index):
     if not path.exists():
         render_page(job['source'], index).save(path)
     return path
+
+
+def color_signature(options):
+    if not options or not options.get('fix_negative'):return (False, ())
+    return (True, tuple(options.get('polarity_pages', [])))
+
+
+def prepare_options(job, options):
+    signature = color_signature(options)
+    previous = color_signature(job.get('options'))
+    if options['method'] in ('preset','manual'):
+        has_repairs = any(any(job.get(key, {}).values()) for key in ('repairs','automatic','auto_background'))
+        repair_signature = job.get('repair_color_settings', previous)
+        if has_repairs and signature != repair_signature:
+            raise ValueError('Existing word repairs use different page colors. Keep the previous color setting, or save your PDF and reopen the original before changing it.')
+        job['repair_color_settings'] = signature
+    if signature != previous:
+        job.pop('inversion_model', None)
+        job.pop('pending_repair', None)
+
+
+def working_original(job, index, options=None):
+    options = options if options is not None else (job.get('options') or {})
+    raw = original(job,index)
+    if not options.get('fix_negative'):return raw
+    forced = index in options.get('polarity_pages', [])
+    key = (index, forced)
+    cache = job.setdefault('color_cache', {})
+    if key not in cache:
+        with Image.open(raw) as source:
+            pixels, details = page_polarity.correct(source, forced)
+        target=job['dir']/f'{index}-normalized-{int(forced)}.png'
+        Image.fromarray(pixels).save(target)
+        cache[key]=(target,details)
+    return cache[key][0]
+
+
+def source_ocr_cache(job, index, path):
+    # Keep the legacy cache for unmodified source scans; normalized scans are separate.
+    return job['dir']/(f'{index}-ocr.json' if path == image_path(job,index) else path.stem+'-ocr.json')
 
 
 @app.get('/')
@@ -126,30 +167,35 @@ def static(name):
 def upload():
     with LOCK:
         if len(JOBS) >= 1:
-            raise ValueError('Clear the current document before opening another PDF.')
+            raise ValueError('Clear the current document before opening another file.')
         identifier = secrets.token_hex(12)
         directory = ROOT/identifier
         directory.mkdir()
         source = directory/'original.pdf'
+        incoming = directory/'input-upload'
         try:
             total = 0
-            with source.open('wb') as target:
+            with incoming.open('wb') as target:
                 while chunk := request.stream.read(1024*1024):
                     total += len(chunk)
                     if total > app.config['MAX_CONTENT_LENGTH']:
-                        raise ValueError('Maximum PDF size is 150 MB.')
+                        raise ValueError('Maximum file size is 150 MB.')
                     target.write(chunk)
-            with source.open('rb') as content:
-                if not content.read(1024).lstrip().startswith(b'%PDF-'):
-                    raise ValueError('Choose a PDF file.')
+            with incoming.open('rb') as content:
+                is_pdf = content.read(1024).lstrip().startswith(b'%PDF-')
+            if is_pdf:
+                incoming.replace(source)
+                input_info = dict(input_type='PDF', input_note='Original PDF retained.')
+            else:
+                input_info = scan_input.import_scan(incoming, source)
             count, sizes = inspect_pdf(source)
             from urllib.parse import unquote
             name = secure_filename(unquote(request.headers.get('X-Filename', 'document.pdf')))[:150] or 'document.pdf'
             job = dict(id=identifier, name=name, dir=directory, source=source, count=count, size=total, options=None,
-                       state='ready', progress=0, message='Ready to preview.', results=[], cancel=False)
+                       state='ready', progress=0, message='Ready to preview.', results=[], cancel=False, **input_info)
             job['overlays'] = pdf_overlays.inspect(source)
-            JOBS[identifier] = job
             original(job, 0)
+            JOBS[identifier] = job
             return jsonify(public(job))
         except Exception:
             shutil.rmtree(directory, ignore_errors=True)
@@ -186,15 +232,16 @@ def page(identifier, index, kind):
 
 def settings(data):
     method = data.get('method', 'preset')
+    pages = data.get('polarity_pages', [])
+    if not isinstance(pages, list) or len(pages)>300 or any(type(i) is not int or not 0<=i<300 for i in pages):
+        raise ValueError('Invalid manual inversion page selection.')
+    color = dict(fix_negative=bool(data.get('fix_negative', False)), polarity_pages=sorted(set(pages)))
     if method == 'polarity':
-        pages = data.get('polarity_pages', [])
-        if not isinstance(pages, list) or len(pages)>300 or any(type(i) is not int or not 0<=i<300 for i in pages):
-            raise ValueError('Invalid manual inversion page selection.')
         return dict(method='polarity', mode='careful', strokes=[], use_reviewed=False,
                     auto_restore=False, scan_inversion=False, polarity_pages=sorted(set(pages)))
     if method == 'overlay':
         return dict(method='overlay', mode='careful', strokes=[], use_reviewed=False,
-                    auto_restore=False, scan_inversion=False)
+                    auto_restore=False, scan_inversion=False, **color)
     mode = data.get('mode', 'careful')
     if method not in ('preset', 'manual') or mode not in ('careful', 'light', 'strong', 'lama'):
         raise ValueError('Invalid cleanup settings.')
@@ -208,11 +255,11 @@ def settings(data):
         if not test.any():
             raise ValueError('Paint over the watermark on the original page first.')
     return dict(method=method, mode=mode, strokes=strokes, use_reviewed=bool(data.get('use_reviewed', True)),
-                auto_restore=bool(data.get('auto_restore',False)), scan_inversion=bool(data.get('scan_inversion',False)))
+                auto_restore=bool(data.get('auto_restore',False)), scan_inversion=bool(data.get('scan_inversion',False)), **color)
 
 
 def cleanup_page(job, index, options):
-    before = original(job, index)
+    before = working_original(job, index, options)
     image = Image.open(before).convert('RGB')
     reviewed = load_reviewed_patch(image, PROFILE_ROOT) if options.get('use_reviewed', True) and options['mode']!='lama' else None
     if reviewed is not None:
@@ -264,18 +311,29 @@ def process_page(job, index, options):
         if not target.exists():
             pdf_overlays.write_clean(job['source'], target, range(job['count']), lambda: job['cancel'])
         image = render_page(target, index)
+        image.save(job['dir']/f'{index}-structural.png')
+        color = None
+        if options.get('fix_negative'):
+            pixels, color = page_polarity.correct(image, index in options.get('polarity_pages', []))
+            image = Image.fromarray(pixels)
         image.save(image_path(job, index, True))
         changed = np.any(np.array(image) != before, axis=2)
         before[changed] = (before[changed]*.45 + np.array([240,85,45])*.55).astype('uint8')
         Image.fromarray(before).save(job['dir']/f'{index}-mask.png')
         info = job['overlays'][index]
-        return dict(page=index, confidence=None, matched=bool(info['overlays']), changed=int(changed.sum()),
-                    protected=0, reviewed=False, uncertain=False, structural=True, **info)
+        return dict(page=index, confidence=None, matched=bool(info['overlays']) or bool(color and color['applied']), changed=int(changed.sum()),
+                    protected=0, reviewed=False, uncertain=bool(color and color['applied']), structural=True, color_correction=color, **info)
     result = cleanup_page(job, index, options)
+    if options.get('fix_negative'):
+        color = job['color_cache'][(index, index in options.get('polarity_pages', []))][1]
+        result['color_correction'] = color
+        if color['applied']:
+            result['matched'] = True
+            result['uncertain'] = True
     path = image_path(job, index, True)
     image = Image.open(path).convert('RGB')
     if options.get('scan_inversion'):
-        pixels, details = scan_inversion.apply(Image.open(original(job,index)).convert('RGB'), np.array(image),
+        pixels, details = scan_inversion.apply(Image.open(working_original(job,index,options)).convert('RGB'), np.array(image),
                                                job['inversion_model'], BASE/'assets/huntington.npy')
         image=Image.fromarray(pixels)
         result.update(details)
@@ -344,7 +402,7 @@ def restoration_worker(job,clear=False):
                 for index in range(job['count']):
                     if job['cancel']:raise InterruptedError()
                     with LOCK:
-                        path=original(job,index)
+                        path=working_original(job,index)
                         image=Image.open(path).convert('RGB')
                         if job['options']['method']=='preset':
                             mask,confidence=known_mask(image,BASE/'assets/huntington.npy',min_score=.35)
@@ -352,7 +410,7 @@ def restoration_worker(job,clear=False):
                         mask_path=job['dir']/f'{index}-restore-mask.npy'
                         np.save(mask_path,mask,allow_pickle=False);masks[index]=mask_path
                     job.update(progress=index+1,message=f'Reading clean word samples: page {index+1} of {job["count"]}.')
-                    source_ocr[index]=local_ocr(path,job['dir']/f'{index}-ocr.json')
+                    source_ocr[index]=local_ocr(path,source_ocr_cache(job,index,path))
                     yield index,cv2.cvtColor(np.array(image),cv2.COLOR_RGB2GRAY),mask,source_ocr[index]
             index_words=auto_restore.make_index(donor_pages())
             total=0
@@ -360,7 +418,7 @@ def restoration_worker(job,clear=False):
                 if job['cancel']:raise InterruptedError()
                 job.update(progress=index+1,message=f'Reconstructing matching words: page {index+1} of {job["count"]}; {total} new matches.')
                 with LOCK:
-                    source=Image.open(original(job,index)).convert('RGB')
+                    source=Image.open(working_original(job,index)).convert('RGB')
                     current=Image.open(image_path(job,index,True)).convert('RGB')
                     mask=np.load(masks[index],allow_pickle=False)
                 if not mask.any():overlaps[index]=[];continue
@@ -433,7 +491,7 @@ def word_read(identifier):
         job,index=repair_job(identifier,data)
         current=Image.open(image_path(job,index,True)).convert('RGB')
         box=word_repair.rectangle(data.get('rect'),current.size)
-        source=Image.open(original(job,index)).convert('RGB')
+        source=Image.open(working_original(job,index)).convert('RGB')
         model=BASE/'models'/text_restore.MODEL_NAME
         return jsonify(original=text_restore.recognize(np.array(source.crop(box)),model),
                        cleaned=text_restore.recognize(np.array(current.crop(box)),model))
@@ -451,13 +509,13 @@ def word_preview(identifier):
             donor_page = data.get('donor_page', index)
             if type(donor_page) is not int or not 0 <= donor_page < job['count']:
                 raise ValueError('Invalid source page.')
-            donor = Image.open(original(job,donor_page)).convert('RGB')
+            donor = Image.open(working_original(job,donor_page)).convert('RGB')
             donor_box = word_repair.rectangle(data.get('donor_rect'),donor.size)
             if donor_page == index and box[0]<donor_box[2] and donor_box[0]<box[2] and box[1]<donor_box[3] and donor_box[1]<box[3]:
                 raise ValueError('Choose a separate, undamaged occurrence of this word.')
         if data.get('method')=='fit':
             text=word_repair.confirmed_text(data.get('text'))
-            source=Image.open(original(job,index)).convert('RGB')
+            source=Image.open(working_original(job,index)).convert('RGB')
             if job['options']['method']=='preset':
                 mask,_=known_mask(source,BASE/'assets/huntington.npy',min_score=.35)
             else:mask=paint_mask(source.size,job['options']['strokes'])
@@ -471,7 +529,7 @@ def word_preview(identifier):
             message='Fitted font, size, position and ink weight to surviving original letters. Confirm the wording and inspect the preview; shape similarity does not verify text.'
         elif data.get('method')=='lama':
             word_repair.confirmed_text(data.get('text'))
-            source=Image.open(original(job,index)).convert('RGB')
+            source=Image.open(working_original(job,index)).convert('RGB')
             if job['options']['method']=='preset':
                 mask,_=known_mask(source,BASE/'assets/huntington.npy',min_score=.35)
             else:mask=paint_mask(source.size,job['options']['strokes'])
@@ -547,8 +605,8 @@ def word_find(identifier):
         if type(source_page) is not int or not 0 <= source_page < job['count']:
             raise ValueError('Invalid source page.')
         text = word_repair.confirmed_text(data.get('text'))
-        path = original(job,source_page)
-        cache = job['dir']/f'{source_page}-ocr.json'
+        path = working_original(job,source_page)
+        cache = source_ocr_cache(job,source_page,path)
         ocr=local_ocr(path,cache)
         image = Image.open(path).convert('RGB')
         mask,_ = known_mask(image,BASE/'assets/huntington.npy',min_score=.18)
@@ -583,6 +641,7 @@ def preview(identifier):
             raise ValueError('Wait for the current operation to finish.')
         data = request.get_json()
         options = settings(data)
+        prepare_options(job, options)
         if options.get('scan_inversion') and 'inversion_model' not in job:
             raise ValueError('Process all pages once with PureScan enabled to learn this document’s watermark. Individual previews are available afterward.')
         index = int(data.get('page', 0))
@@ -598,7 +657,7 @@ def batch(job, options):
             def pages():
                 for index in range(job['count']):
                     with LOCK:
-                        image=Image.open(original(job,index)).convert('RGB')
+                        image=Image.open(working_original(job,index,options)).convert('RGB')
                     yield index,image
             def progress(index):
                 job.update(progress=index+1,message=f'Learning the blended watermark: page {index+1} of {job["count"]}.')
@@ -634,6 +693,7 @@ def process(identifier):
         if job['state'] in ('processing', 'exporting', 'learning', 'restoring'):
             raise ValueError('An operation is already running.')
         options = settings(request.get_json())
+        prepare_options(job, options)
         job.update(state='processing', progress=0, results=[], options=options, cancel=False, message='Starting cleanup...')
         threading.Thread(target=batch, args=(job, options), daemon=True).start()
         return jsonify(public(job))
@@ -649,7 +709,12 @@ def export_worker(job, keep):
     try:
         with LOCK:
             if job['options']['method'] == 'overlay':
-                pdf_overlays.write_clean(job['source'], job['dir']/'cleaned.pdf', keep, lambda: job['cancel'])
+                corrected = [i for i in keep if (job['results'][i].get('color_correction') or {}).get('applied')]
+                target = job['dir']/('overlay-export.pdf' if corrected else 'cleaned.pdf')
+                pdf_overlays.write_clean(job['source'], target, keep, lambda: job['cancel'])
+                if corrected:
+                    edits = {i:(job['dir']/f'{i}-structural.png',image_path(job,i,True)) for i in corrected}
+                    write_pdf(target,job['dir']/'cleaned.pdf',edits,lambda:job['cancel'])
             else:
                 edits = {i: (original(job, i), image_path(job, i, True)) for i in keep}
                 write_pdf(job['source'], job['dir']/'cleaned.pdf', edits, lambda: job['cancel'])
@@ -680,7 +745,7 @@ def download(identifier):
     if job['state'] != 'done':
         raise ValueError('The PDF is not ready yet.')
     return send_file(job['dir']/'cleaned.pdf', as_attachment=True,
-                     download_name=Path(job['name']).stem+'_ClearPage-1.8.pdf', mimetype='application/pdf')
+                     download_name=Path(job['name']).stem+'_ClearPage-1.9.pdf', mimetype='application/pdf')
 
 
 @app.post('/api/compare/<identifier>/<int:index>')
@@ -697,7 +762,7 @@ def compare_reference(identifier, index):
                 while chunk := request.stream.read(1024*1024):
                     total += len(chunk)
                     if total > app.config['MAX_CONTENT_LENGTH']:
-                        raise ValueError('Maximum PDF size is 150 MB.')
+                        raise ValueError('Maximum file size is 150 MB.')
                     output.write(chunk)
             quality_check.validate_reference(job['source'], target)
             report = quality_check.compare(Image.open(original(job,index)),
@@ -777,7 +842,7 @@ def import_reviewed(identifier):
                 while chunk := request.stream.read(1024*1024):
                     total += len(chunk)
                     if total > app.config['MAX_CONTENT_LENGTH']:
-                        raise ValueError('Maximum PDF size is 150 MB.')
+                        raise ValueError('Maximum file size is 150 MB.')
                     output.write(chunk)
         except Exception:
             target.unlink(missing_ok=True)

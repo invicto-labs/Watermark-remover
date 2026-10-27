@@ -1,7 +1,38 @@
-# ClearPage 1.8
+# ClearPage 1.9
 
-A local Windows application for visual watermark cleanup in scanned PDFs.
+A local Windows application for watermark cleanup in PDFs and scanned images.
 
+
+## New in 1.9
+
+Open **PDF, JPG/JPEG, PNG, or TIFF** directly. Every page of a multipage TIFF is
+imported in order. Images become a local PDF container; exports are always PDFs.
+The original uploaded file is retained unchanged for the session. Decoded RGB
+pixels are embedded without an additional JPEG compression pass. EXIF orientation
+is applied, transparent areas become white, and usable DPI metadata determines
+page size, rounded to the nearest half point to align exported corrections with
+the preview grid. Missing or invalid DPI uses 144 DPI. Processing previews still use
+144 DPI, so changed areas are not a full-resolution image-editing workflow.
+
+Under **More options**, choose the watermark type and enable **Fix black pages
+before watermark cleanup**. Detected negative scans are corrected before image
+cleanup, OCR, donor matching, or PureScan learning. In website-overlay mode,
+recognized overlays are removed before the scan colors are corrected. These
+operations now share one preview/process/export workflow. Normal pages retain
+their colors; uncertain negative scans can use the per-page inversion override.
+All color-corrected pages require review and selection for export. The Before
+preview remains the unmodified source. To correct colors only, select the
+existing **Black page → white paper** mode instead.
+
+The app keeps OCR and PureScan caches separate when colors change. Existing
+word-repair patches cannot be reused with different color settings: keep the
+previous setting, or save your work and reopen the original before changing it.
+This avoids silently discarding or incorrectly recoloring accepted repairs.
+
+Image imports allow up to 150 MB, 300 TIFF pages, 12 million decoded pixels per
+page, and 120 million pixels per image file. A low DPI value that would exceed
+the existing PDF render limits is rejected. Animated PNGs and other image
+formats are not supported. A damaged or oversized import leaves no partial job.
 
 ## New in 1.8
 
@@ -10,8 +41,8 @@ analyzes each page for a negative scan and previews an exact RGB inversion at
 144 DPI, without OCR or retyping. Normal and uncertain pages remain unchanged.
 Use **Invert this page even if not detected** for a missed page. All proposed
 inversions are unchecked for export until reviewed. Inversion reverses every
-color, including photographs and stamps; it does not remove watermarks in the
-same pass. Save the accepted result and reopen it to perform watermark cleanup.
+color, including photographs and stamps; standalone inversion does not remove watermarks. For the combined workflow,
+choose a watermark type and enable the new color-correction checkbox.
 The complete PDF retains page order, dimensions, crop and rotation; unselected
 pages stay original. This is a rendered correction, not lossless restoration of
 an original higher-resolution image. Existing word repairs are bypassed in this
@@ -24,10 +55,10 @@ and preservation; they do not claim word accuracy or an overall percentage.
 
 ## Employees: start here
 
-1. Extract **the entire ClearPage-1.8-Windows.zip** to a new folder on your computer.
+1. Extract **the entire ClearPage-1.9-Windows.zip** to a new folder on your computer.
 2. Open the ClearPage folder and double-click **ClearPage.exe**. Keep the `_internal` folder beside the application.
 3. The app opens in your default browser. Processing happens on your computer; an internet connection and Python installation are not required.
-4. Click **Choose a PDF**, or drag your PDF onto the upload box. Recognized website overlays use the same automatic selection as before. Other PDF types can be selected under **More options**.
+4. Click **Choose a PDF or scan**, or drag a supported file onto the upload box. Recognized website overlays use the same automatic selection as before. Other PDF types can be selected under **More options**.
 5. Click **Try this page** for a preview, or **Clean all pages** to process the document. Compare **Before** and **After**. Use the page arrows and **Zoom in** to inspect the text.
 6. Keep **Use this cleaned page** checked for pages you accept. Uncheck it to keep the original page. AI and uncertain results still keep the original by default. **Choose which pages to clean** provides the complete page list.
 7. Click **Create PDF**, then **Download PDF**. All pages are included in their original order and with their original dimensions.
@@ -100,7 +131,7 @@ The new pass only touches the known watermark region, keeps previously changed p
 
 The preview reports how many pixels the inversion pass changed before word restoration. The feature is opt-in and does not claim lossless restoration of real scans. The source and Windows distribution include PureScan's MIT license and pinned provenance. No new network calls, models, or GPU requirements are introduced.
 
-Exports and the page title now identify **ClearPage 1.8** so results can be distinguished from older app windows.
+Exports and the page title now identify **ClearPage 1.9** so results can be distinguished from older app windows.
 
 ## Automatic word restoration (introduced in 1.3)
 
@@ -179,4 +210,4 @@ Share the entire `dist/ClearPage` folder as a ZIP. A code-signing certificate, m
 
 ## Verification
 
-Run `python test_app.py`, `python test_overlays.py`, and `python test_quality.py` in the Windows source environment. Tests exercise cleanup boundaries, text preservation, rotated/cropped PDF export, page retention, local request protection, upload validation, preview, batch processing, selective export, and session cleanup. Word-repair tests also verify selection validation, exact-case donor matching, preview isolation, confirmation, stale-preview rejection, outside-rectangle preservation, reprocessing, exported pixels and exact undo. Quality tests cover negative scans, manual overrides, normal-page preservation, reference metrics and benchmark validation.
+Run `python test_app.py`, `python test_overlays.py`, `python test_quality.py`, and `python test_scans.py` in the Windows source environment. Tests exercise cleanup boundaries, text preservation, rotated/cropped PDF export, page retention, local request protection, upload validation, preview, batch processing, selective export, and session cleanup. Word-repair tests also verify selection validation, exact-case donor matching, preview isolation, confirmation, stale-preview rejection, outside-rectangle preservation, reprocessing, exported pixels and exact undo. Quality tests cover negative scans, manual overrides, normal-page preservation, reference metrics and benchmark validation.
