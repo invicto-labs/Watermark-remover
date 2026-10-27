@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 let job = null, page = 0, strokes = [], activeStroke = null, erasing = false, busy = false;
 let keep = new Set(), results = [], previewed = new Set(), polling = null, revision = 0;
 let noticeTimer, loadingPage = 0;
+let polarityPages = new Set(), qualityReport = null;
 function notice(message, error=false) { if(!$('notice'))return; $('notice').textContent=message; $('notice').classList.toggle('error',error); $('notice').hidden=false; clearTimeout(noticeTimer); noticeTimer=setTimeout(()=>{if($('notice'))$('notice').hidden=true;},8000); }
 async function api(path, body, raw=false) {
  const options=body===undefined?{}:{method:'POST',headers:{'X-ClearPage':'local'},body:raw?body:JSON.stringify(body)};
@@ -11,17 +12,20 @@ async function api(path, body, raw=false) {
  const response=await fetch(path,options); const data=await response.json();
  if(!response.ok) throw Error(data.error||'The operation could not be completed.'); return data;
 }
-function setBusy(value) { busy=value; for(const id of ['method','mode','preview','process','reset','erase','undo','clearBrush','brushSize','export','allOriginal','allCleaned','previous','next','pageNumber','useReviewed','importReviewed','autoRestore','scanInversion','restoreNow','clearAutomatic']) $(id).disabled=value; if(!value&&job){$('previous').disabled=page===0;$('next').disabled=page===job.count-1;} $('brushCanvas').style.pointerEvents=value?'none':($('method').value==='manual'?'auto':'none'); syncOverlayControls(); syncSimpleView(); if(typeof syncRepair==='function')syncRepair(); }
+function setBusy(value) { busy=value; for(const id of ['method','mode','preview','process','reset','erase','undo','clearBrush','brushSize','export','allOriginal','allCleaned','previous','next','pageNumber','useReviewed','importReviewed','autoRestore','scanInversion','restoreNow','clearAutomatic','forcePolarity']) $(id).disabled=value; if(!value&&job){$('previous').disabled=page===0;$('next').disabled=page===job.count-1;} $('brushCanvas').style.pointerEvents=value?'none':($('method').value==='manual'?'auto':'none'); syncOverlayControls(); syncSimpleView(); if(typeof syncRepair==='function')syncRepair(); }
 function syncOverlayControls() {
- const overlay=$('method').value==='overlay';
+ const polarity=$('method').value==='polarity';
+ const overlay=$('method').value==='overlay'||polarity;
+ $('polarityTools').hidden=!polarity;
+ $('showMask').disabled=busy||polarity;if(polarity)$('showMask').checked=false;
  for(const id of ['mode','useReviewed','importReviewed','autoRestore','scanInversion'])$(id).disabled=busy||overlay;
  $('aiHelp').hidden=overlay||$('mode').value!=='lama';
  $('wordRepair').hidden=overlay;$('repairTools').hidden=overlay;
  if(overlay){$('modeHelp').textContent='Original scan data is preserved. No pixel reconstruction or word replacement is applied.';$('methodHelp').textContent='Removes recognized Cook County and OKCountyRecords overlays. Unknown layouts remain unchanged.';}
  else {$('modeHelp').textContent={lama:'Local LaMa AI reconstructs selected watermark pixels. Review generated letters before export.',careful:'Preserves detected text lines and connected strokes. Some watermark fragments may remain.',light:'Only cleans lighter pixels, preserving dark strokes and nearby edges.'}[$('mode').value]||'';}
 }
-function options() { return {method:$('method').value,mode:$('mode').value,strokes,page,use_reviewed:$('useReviewed').checked,auto_restore:$('autoRestore').checked,scan_inversion:$('scanInversion').checked}; }
-function invalidate() { if(!job)return; sessionStorage.removeItem('keep-'+job.id); revision++; previewed.clear(); results=[]; keep.clear(); $('review').hidden=true; $('keepLabel').hidden=true; $('download').hidden=true; $('export').hidden=false; $('previewState').textContent='SETTINGS CHANGED'; $('pageResult').textContent='Preview again to see these settings.'; loadPage(); }
+function options() { return {method:$('method').value,mode:$('mode').value,strokes,page,polarity_pages:[...polarityPages],use_reviewed:$('useReviewed').checked,auto_restore:$('autoRestore').checked,scan_inversion:$('scanInversion').checked}; }
+function invalidate() { clearQuality(); if(!job)return; sessionStorage.removeItem('keep-'+job.id); revision++; previewed.clear(); results=[]; keep.clear(); $('review').hidden=true; $('keepLabel').hidden=true; $('download').hidden=true; $('export').hidden=false; $('previewState').textContent='SETTINGS CHANGED'; $('pageResult').textContent='Preview again to see these settings.'; loadPage(); }
 async function upload(file) {
  if(!file||busy)return;
  if(file.size>150*1024*1024) return notice('Maximum PDF size is 150 MB.',true);
@@ -30,7 +34,7 @@ async function upload(file) {
  try {
   const response=await fetch('/api/upload',{method:'POST',headers:{'X-ClearPage':'local','X-Filename':encodeURIComponent(file.name),'Content-Type':'application/pdf'},body:file});
   const data=await response.json(); if(!response.ok)throw Error(data.error);
-  job=data; $('method').value=job.overlays?.some(r=>r.overlays)?'overlay':'preset'; $('method').onchange(); page=0; strokes=[]; previewed.clear(); results=[]; keep.clear();
+  job=data;polarityPages.clear();clearQuality(); $('method').value=job.overlays?.some(r=>r.overlays)?'overlay':'preset'; $('method').onchange(); page=0; strokes=[]; previewed.clear(); results=[]; keep.clear();
   $('welcome').hidden=true; $('workspace').hidden=false; $('controls').hidden=false;
   $('step1').classList.remove('active'); $('step2').classList.add('active');
   $('filename').textContent=file.name; $('filemeta').textContent=`${job.count} pages · ${(file.size/1024/1024).toFixed(1)} MB · Original retained`;
@@ -40,7 +44,7 @@ async function upload(file) {
 }
 function imageURL(kind) { return `/api/page/${job.id}/${page}/${kind}?v=${revision}`; }
 async function loadPage() {
- if(!job)return; const current=++loadingPage; if(typeof repairPageLoaded==='function')repairPageLoaded(); $('paintLabel').textContent=$('method').value==='manual'?'PAINT THE WATERMARK':'SOURCE COPY';
+ if(!job)return; clearQuality(); $('forcePolarity').checked=polarityPages.has(page); const current=++loadingPage; if(typeof repairPageLoaded==='function')repairPageLoaded(); $('paintLabel').textContent=$('method').value==='manual'?'PAINT THE WATERMARK':'SOURCE COPY';
  $('pageNumber').value=page+1; $('previous').disabled=page===0; $('next').disabled=page===job.count-1;
  const src=imageURL('before');
  await new Promise(resolve=>{ $('before').onload=resolve;$('before').onerror=()=>{notice('Could not load this page.',true);resolve();};$('before').src=src; });
@@ -73,7 +77,7 @@ $('brushSize').oninput=()=>$('brushValue').textContent=$('brushSize').value+'%';
 $('method').onchange=()=>{const manual=$('method').value==='manual';if(manual)$('scanInversion').checked=false;$('brushTools').hidden=!manual;$('originalPaper').classList.toggle('painting',manual);$('paintLabel').textContent=manual?'PAINT THE WATERMARK':'SOURCE COPY';$('methodHelp').textContent=manual?'Select an area yourself. Best for marks on blank backgrounds.':'Detects the recurring “IMAGES/COPY PROPERTY…” mark. Pages without a confident match stay unchanged.';invalidate();setBusy(false);};
 $('mode').onchange=()=>{const ai=$('mode').value==='lama';$('aiHelp').hidden=!ai;if(ai)$('scanInversion').checked=false;$('modeHelp').textContent={lama:'Local LaMa AI reconstructs selected watermark pixels. Review generated letters before export.',careful:'Preserves detected text lines and connected strokes. Some watermark fragments may remain.',light:'Only cleans lighter pixels, preserving dark strokes and nearby edges.',strong:'Replaces every selected pixel. This can erase words, numbers, or signatures inside the selection. Review closely.'}[$('mode').value];invalidate();};
 $('preview').onclick=async()=>{if(!job||busy)return;setBusy(true);$('previewState').textContent='PROCESSING';try{const result=await api(`/api/preview/${job.id}`,options());revision++;results=[];keep.clear();$('review').hidden=true;previewed=new Set([page]);await loadPage();showResult(result);}catch(error){notice(error.message,true);}finally{setBusy(false);}};
-function showTechnicalResult(result){if(!result)return;if(result.structural){$('pageResult').textContent=result.matched?`${result.providers.join(' / ')}: ${result.overlays} watermark overlays removed. Original scan data preserved; no words reconstructed.`:'No recognized website overlay on this page. Original page retained.';return;}$('pageResult').textContent=(result.inversion_note?`${result.inverted||0} pixels reverse-blended · ${result.inversion_note} `:'')+(result.automatic?`${result.automatic} automatically reconstructed words/phrases · `:'')+(result.repairs?`${result.repairs} confirmed word repairs · `:'')+(result.reviewed?'Exact source-page match: using your imported reviewed repairs.':!result.matched?(result.repairs?'Watermark cleanup left the source unchanged; confirmed word repairs are included.':'No confident watermark match. This page stays unchanged.'):`${result.uncertain?(result.ai?'AI RECONSTRUCTION: kept original by default. Check affected words before selecting this page. ':'UNCERTAIN PLACEMENT: kept original by default. Inspect the selected pixels before accepting. '):''}${result.changed.toLocaleString()} pixels cleaned · ${result.protected.toLocaleString()} selected pixels protected${result.confidence!==null?' · Watermark alignment '+Math.round(result.confidence*100)+'% (not text accuracy)':''}. Check any overlap with text.`);}
+function showTechnicalResult(result){if(!result)return;if(result.polarity){$('pageResult').textContent=result.polarity.note;return;}if(result.structural){$('pageResult').textContent=result.matched?`${result.providers.join(' / ')}: ${result.overlays} watermark overlays removed. Original scan data preserved; no words reconstructed.`:'No recognized website overlay on this page. Original page retained.';return;}$('pageResult').textContent=(result.inversion_note?`${result.inverted||0} pixels reverse-blended · ${result.inversion_note} `:'')+(result.automatic?`${result.automatic} automatically reconstructed words/phrases · `:'')+(result.repairs?`${result.repairs} confirmed word repairs · `:'')+(result.reviewed?'Exact source-page match: using your imported reviewed repairs.':!result.matched?(result.repairs?'Watermark cleanup left the source unchanged; confirmed word repairs are included.':'No confident watermark match. This page stays unchanged.'):`${result.uncertain?(result.ai?'AI RECONSTRUCTION: kept original by default. Check affected words before selecting this page. ':'UNCERTAIN PLACEMENT: kept original by default. Inspect the selected pixels before accepting. '):''}${result.changed.toLocaleString()} pixels cleaned · ${result.protected.toLocaleString()} selected pixels protected${result.confidence!==null?' · Watermark alignment '+Math.round(result.confidence*100)+'% (not text accuracy)':''}. Check any overlap with text.`);}
 function updatePageResult(){const result=results.find(r=>r.page===page);$('keepLabel').hidden=!result;$('keepPage').checked=keep.has(page);$('keepPage').disabled=!result?.changed;showResult(result);}
 $('process').onclick=async()=>{if(!job||busy)return;setBusy(true);try{job=await api(`/api/process/${job.id}`,options());sessionStorage.removeItem('keep-'+job.id);results=[];keep=new Set();$('review').hidden=true;$('keepLabel').hidden=true;$('progressBox').hidden=false;$('cancel').hidden=false;poll();}catch(error){notice(error.message,true);setBusy(false);}};
 async function poll(){clearTimeout(polling);if(!job)return;try{const state=await api(`/api/job/${job.id}`);job=state;$('statusText').textContent=state.message;$('progress').value=state.progress;$('progress').max=state.count;
@@ -110,7 +114,7 @@ async function restoreSession(){
   $('filename').textContent=job.name;$('filemeta').textContent=`${job.count} pages · ${(job.size/1024/1024).toFixed(1)} MB · Original retained`;
   $('total').textContent=`of ${job.count}`;$('pageNumber').max=job.count;
   $('step1').classList.remove('active');$('step2').classList.add('active');
-  if(job.options){$('method').value=job.options.method;$('mode').value=job.options.mode==='strong'?'careful':job.options.mode;$('aiHelp').hidden=job.options.mode!=='lama';$('useReviewed').checked=job.options.use_reviewed!==false;$('autoRestore').checked=job.options.auto_restore!==false;$('scanInversion').checked=!!job.options.scan_inversion;strokes=job.options.strokes;const manual=job.options.method==='manual';$('brushTools').hidden=!manual;$('originalPaper').classList.toggle('painting',manual);$('paintLabel').textContent=manual?'PAINT THE WATERMARK':'SOURCE COPY';}
+  if(job.options){polarityPages=new Set(job.options.polarity_pages||[]);$('method').value=job.options.method;$('mode').value=job.options.mode==='strong'?'careful':job.options.mode;$('aiHelp').hidden=job.options.mode!=='lama';$('useReviewed').checked=job.options.use_reviewed!==false;$('autoRestore').checked=job.options.auto_restore!==false;$('scanInversion').checked=!!job.options.scan_inversion;strokes=job.options.strokes;const manual=job.options.method==='manual';$('brushTools').hidden=!manual;$('originalPaper').classList.toggle('painting',manual);$('paintLabel').textContent=manual?'PAINT THE WATERMARK':'SOURCE COPY';}
   if(job.options){$('modeHelp').textContent={lama:'Local LaMa AI reconstructs selected watermark pixels. Review generated letters before export.',careful:'Preserves detected text lines and connected strokes. Some watermark fragments may remain.',light:'Only cleans lighter pixels, preserving dark strokes and nearby edges.',strong:'Replaces every selected pixel. This can erase words, numbers, or signatures inside the selection. Review closely.'}[job.options.mode];if(job.options.method==='manual')$('methodHelp').textContent='Select an area yourself. Best for marks on blank backgrounds.';}
   if(['processing','exporting','learning','restoring','review','done'].includes(job.state)){$('progressBox').hidden=false;setBusy(true);poll();}else{setBusy(false);await loadPage();}
  }catch(error){notice(error.message,true);}
@@ -138,7 +142,7 @@ function syncSimpleView() {
  $('pageChoices').hidden=!reviewed;
  if(!busy&&(job?.state==='done'||(job?.state==='review'&&job.message==='Review the results, then save your complete PDF.')))$('progressBox').hidden=true;
  const method=$('method').value;
- $('simpleMethod').textContent=method==='overlay'?'Supported website PDF detected. The original scan will be preserved.':method==='manual'?'Paint the watermark on the Before page, then try the cleanup.':'Huntington cleanup selected. For a different PDF type, use More options.';
+ $('simpleMethod').textContent=method==='polarity'?'Checks for white text on black paper. Review the proposed inversion before saving.':method==='overlay'?'Supported website PDF detected. The original scan will be preserved.':method==='manual'?'Paint the watermark on the Before page, then try the cleanup.':'Huntington cleanup selected. For a different PDF type, use More options.';
  $('selectionSummary').textContent=job?`${keep.size} of ${job.count} pages selected`:'';
  $('saveTitle').textContent=!$('download').hidden?'Your PDF is ready':'Check the pages, then save';
  $('saveHelp').textContent=!$('download').hidden?'Download the new copy to your computer.':job?`All ${job.count} pages will be included. Only checked pages use the cleaned version.`:'All pages will be included.';
@@ -146,6 +150,7 @@ function syncSimpleView() {
  $('step2').classList.toggle('active',!!job&&!reviewed);
  $('step3').classList.toggle('active',reviewed);
  $('file').disabled=busy;
+ $('compareReference').disabled=busy||!job||!['review','done'].includes(job.state)||!results.length;
  $('previewAgain').disabled=busy;$('cleanAgain').disabled=busy;
  updateOptionExamples();
 }
@@ -154,7 +159,8 @@ function showResult(result) {
  let message='Click “Try this page” to see a preview, or clean all pages.';
  let warning=false;
  if(result){
-  if(result.structural)message=result.matched?'Watermark removed. The original scan is unchanged.':'No supported watermark found. This page is unchanged.';
+  if(result.polarity){message=result.polarity.note;warning=result.changed>0;}
+  else if(result.structural)message=result.matched?'Watermark removed. The original scan is unchanged.':'No supported watermark found. This page is unchanged.';
   else if(result.uncertain){message=keep.has(page)?'You selected this cleaned page. Check the altered text carefully before saving.':'Check the text carefully. The original will be kept unless you select this cleaned page.';warning=true;}
   else if(!result.matched)message=result.repairs?'Word repairs applied. Check the wording before saving.':'No watermark match found. This page is unchanged.';
   else message='Cleanup ready. Check the words and numbers in the After page.';
@@ -171,6 +177,7 @@ $('cleanAgain').onclick=()=>$('process').click();
 function updateOptionExamples() {
  const method=$('method').value;
  const types={
+  polarity:'Use when the whole scanned page has white text on a black background. The app looks for dark paper with small light marks. It reverses the existing colors without retyping words. Dark photos, mixed layouts and uncertain pages may need the per-page override. All proposed inversions need your review.',
   overlay:'Use for supported Cook County or OKCountyRecords PDFs. Example: a grey “NOT AN OFFICIAL COPY” overlay on a downloaded deed. This mode removes recognized overlays while keeping the original scan. If no supported watermark is found, the page stays unchanged.',
   preset:'Use for Huntington County scans with the diagonal “IMAGES/COPY PROPERTY…” mark. Example: large diagonal words crossing a scanned deed. Try Careful first and check the words beneath the mark.',
   manual:'Use for another watermark that you can paint over yourself. Example: a small mark in an empty corner. Select only the watermark on the Before page. Marks covering text are harder to remove, and the same selection is applied to every page.'
@@ -181,7 +188,7 @@ function updateOptionExamples() {
   lama:'Try when image cleanup still leaves a mark and you can check the text against a reliable copy. Example: a dark line crosses “mortgage”. AI fills in the selected area, but may change letters. Review carefully and select only pages you accept.'
  };
  $('methodHelp').textContent=types[method]||'';
- $('modeHelp').textContent=method==='overlay'?'No cleanup method is needed for Website PDF. The app removes the separate overlay, so these image-cleanup choices are disabled.':modes[$('mode').value]||'';
+ $('modeHelp').textContent=method==='polarity'?'This option reverses page colors only. Watermark cleanup and word repairs are disabled for this pass.':method==='overlay'?'No cleanup method is needed for Website PDF. The app removes the separate overlay, so these image-cleanup choices are disabled.':modes[$('mode').value]||'';
  const repairs={
   donor:'Best when the same word is clear elsewhere. Example: “mortgage” is damaged on page 4 but clear on page 2. Copy that clean occurrence, matching spelling, capital letters and font.',
   fit:'Use when some original letters survive and you have confirmed the exact word. Example: part of “mortgage” is missing, but its remaining strokes are visible. The app fits replacement letters to those strokes; check the preview.',
@@ -192,3 +199,19 @@ function updateOptionExamples() {
 }
 for(const id of ['method','mode','repairMethod'])$(id).addEventListener('change',updateOptionExamples);
 updateOptionExamples();
+
+$('forcePolarity').onchange=()=>{$('forcePolarity').checked?polarityPages.add(page):polarityPages.delete(page);invalidate();};
+function clearQuality(){qualityReport=null;$('qualityResult').textContent='';$('saveQuality').hidden=true;}
+$('compareReference').onclick=()=>$('referenceFile').click();
+$('referenceFile').onchange=async()=>{
+ const file=$('referenceFile').files[0];if(!file||!job||busy)return;
+ if(file.size>150*1024*1024){notice('Maximum PDF size is 150 MB.',true);return;}
+ clearQuality();setBusy(true);
+ try{
+  qualityReport=await api(`/api/compare/${job.id}/${page}`,file,true);
+  const r=qualityReport, val=n=>n===null?'not applicable':n+'%';
+  $('qualityResult').textContent=`Page ${r.page} · Pixel error in areas needing correction: ${r.correction_error_before??'N/A'} before → ${r.correction_error_after??'N/A'} after (0–255; lower is better). Matching original pixels preserved: ${val(r.preserved_reference_matching_pixels_percent)}. Reference dark pixels retained: ${val(r.dark_pixel_recall_percent)}. Output dark pixels matching reference: ${val(r.dark_pixel_precision_percent)}. These are pixel measurements, not word accuracy. Alignment and reference wording must be checked by you.`;
+  $('saveQuality').hidden=false;
+ }catch(error){notice(error.message,true);}finally{setBusy(false);$('referenceFile').value='';}
+};
+$('saveQuality').onclick=()=>{if(!qualityReport)return;const url=URL.createObjectURL(new Blob([JSON.stringify(qualityReport,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='clearpage-quality-page-'+qualityReport.page+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};

@@ -16,6 +16,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe download_text_model.py
 .\.venv\Scripts\python.exe test_app.py
 .\.venv\Scripts\python.exe test_overlays.py
+.\.venv\Scripts\python.exe test_quality.py
 .\.venv\Scripts\python.exe app.py
 ```
 
@@ -48,8 +49,8 @@ ZIP's SHA-256 with `Get-FileHash -Algorithm SHA256 <zip-path>`.
 1. Commit and push the reviewed source changes. Update the application version
    strings, README, and release notes together when changing the version.
 2. In the repository's **Releases**, choose **Draft a new release**. Select the
-   exact tested commit and a new version tag, for example `v1.7.1` for the next
-   patch after 1.7. Do not move an existing release tag.
+   exact tested commit and a new version tag, for example `v1.8.1` for the next
+   patch after 1.8. Do not move an existing release tag.
 3. Attach the tested Windows ZIP and its SHA-256 checksum. GitHub also supplies
    a source archive for the tag; model weights are obtained through the scripts.
 4. Describe the changes, supported inputs, verification performed, and known

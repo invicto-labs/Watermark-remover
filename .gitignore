@@ -26,3 +26,5 @@ ClearPage-*/
 !.env.example
 launch.json
 restart.json
+benchmark-local/
+*-quality-report.json

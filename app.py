@@ -27,6 +27,8 @@ import scan_inversion
 import neural_restore
 import text_restore
 import pdf_overlays
+import page_polarity
+import quality_check
 
 BASE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 TOKEN = secrets.token_urlsafe(32)
@@ -184,6 +186,12 @@ def page(identifier, index, kind):
 
 def settings(data):
     method = data.get('method', 'preset')
+    if method == 'polarity':
+        pages = data.get('polarity_pages', [])
+        if not isinstance(pages, list) or len(pages)>300 or any(type(i) is not int or not 0<=i<300 for i in pages):
+            raise ValueError('Invalid manual inversion page selection.')
+        return dict(method='polarity', mode='careful', strokes=[], use_reviewed=False,
+                    auto_restore=False, scan_inversion=False, polarity_pages=sorted(set(pages)))
     if method == 'overlay':
         return dict(method='overlay', mode='careful', strokes=[], use_reviewed=False,
                     auto_restore=False, scan_inversion=False)
@@ -241,6 +249,15 @@ def cleanup_page(job, index, options):
 
 
 def process_page(job, index, options):
+    if options['method'] == 'polarity':
+        source = Image.open(original(job, index)).convert('RGB')
+        pixels, details = page_polarity.correct(source, index in options.get('polarity_pages', []))
+        Image.fromarray(pixels).save(image_path(job, index, True))
+        source.save(job['dir']/f'{index}-mask.png')
+        job.pop('pending_repair', None)
+        return dict(page=index, confidence=None, matched=details['applied'],
+                    changed=int(np.any(pixels != np.asarray(source), axis=2).sum()),
+                    protected=0, reviewed=False, uncertain=details['applied'], polarity=details)
     if options['method'] == 'overlay':
         before = np.array(Image.open(original(job, index)).convert('RGB'))
         target = job['dir']/'overlay-preview.pdf'
@@ -283,8 +300,8 @@ def process_page(job, index, options):
 
 def repair_job(identifier, data):
     job = job_for(identifier)
-    if (job.get('options') or {}).get('method') == 'overlay':
-        raise ValueError('Website overlay mode preserves the original scan. Switch to image cleanup to repair words.')
+    if (job.get('options') or {}).get('method') in ('overlay', 'polarity'):
+        raise ValueError('Switch to image cleanup to repair words; overlay removal and black-page correction do not apply word repairs.')
     if job['state'] not in ('review', 'done'):
         raise ValueError('Process all pages first, then repair words in the cleaned preview.')
     index = data.get('page')
@@ -399,8 +416,8 @@ def restoration_worker(job,clear=False):
 def restore_all_words(identifier):
     with LOCK:
         job=job_for(identifier)
-        if (job.get('options') or {}).get('method') == 'overlay':
-            raise ValueError('Word reconstruction is unnecessary in website overlay mode; original scan pixels are preserved.')
+        if (job.get('options') or {}).get('method') in ('overlay', 'polarity'):
+            raise ValueError('Word restoration is disabled for overlay removal and black-page correction.')
         if job['state'] not in ('review','done'):
             raise ValueError('Process all pages before restoring words.')
         job.update(state='restoring',cancel=False,progress=0,message='Preparing automatic word restoration...')
@@ -663,7 +680,31 @@ def download(identifier):
     if job['state'] != 'done':
         raise ValueError('The PDF is not ready yet.')
     return send_file(job['dir']/'cleaned.pdf', as_attachment=True,
-                     download_name=Path(job['name']).stem+'_ClearPage-1.7.pdf', mimetype='application/pdf')
+                     download_name=Path(job['name']).stem+'_ClearPage-1.8.pdf', mimetype='application/pdf')
+
+
+@app.post('/api/compare/<identifier>/<int:index>')
+def compare_reference(identifier, index):
+    with LOCK:
+        job = job_for(identifier)
+        if job['state'] not in ('review', 'done'):
+            raise ValueError('Process all pages before comparing a reference.')
+        original(job, index)
+        target = job['dir']/'quality-reference.pdf'
+        try:
+            total = 0
+            with target.open('wb') as output:
+                while chunk := request.stream.read(1024*1024):
+                    total += len(chunk)
+                    if total > app.config['MAX_CONTENT_LENGTH']:
+                        raise ValueError('Maximum PDF size is 150 MB.')
+                    output.write(chunk)
+            quality_check.validate_reference(job['source'], target)
+            report = quality_check.compare(Image.open(original(job,index)),
+                Image.open(image_path(job,index,True)), render_page(target,index))
+            return jsonify(dict(page=index+1, comparison='Current cleaned preview versus supplied reference', **report))
+        finally:
+            target.unlink(missing_ok=True)
 
 
 @app.post('/api/clear/<identifier>')
