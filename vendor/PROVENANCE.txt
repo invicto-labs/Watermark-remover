@@ -1,0 +1,8 @@
+PureScan mathematical core
+Repository: https://github.com/Purestone/purescan
+Commit: d1e020828133e266238d976dfcb419dbd6778942
+Original file: purescan/core.py
+Vendored file: purescan_core.py (unchanged)
+License: MIT; see PureScan-LICENSE.txt
+
+Only the NumPy mathematical core is included. The upstream PyMuPDF PDF processor and CLI are not included. ClearPage uses its own existing PDF reader/exporter and adds alignment, sample limits, a known-watermark mask, near-black/near-opaque protection, and preservation of existing repairs in scan_inversion.py.

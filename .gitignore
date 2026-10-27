@@ -1,0 +1,28 @@
+# Local environments and generated application bundles
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.zip
+*.exe
+*.log
+
+# Downloaded model weights; use the hash-verified download scripts
+models/
+*.pt
+*.onnx
+*.download
+
+# Customer documents, repair libraries, sessions, and local credentials
+*.pdf
+*.npz
+reviewed-pages/
+ClearPage-*/
+.env
+.env.*
+!.env.example
+launch.json
+restart.json

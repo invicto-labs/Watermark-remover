@@ -1,0 +1,32 @@
+ClearPage 1.5 local AI integration, reviewed 2026-10-26
+
+D-Ogi/WatermarkRemover-AI (2,065 stars)
+https://github.com/D-Ogi/WatermarkRemover-AI/tree/127108a5bff1b880ad34ba26ac8b60710b69bb3b
+MIT, Copyright (c) 2025 D-Ogi.
+Inspected Florence detection, stroke/box masks, LaMa processing/runtime/model_store.
+RGB normalization, pad-to-8 inference and model hash pin informed ClearPage.
+The Florence detector and its weights are not shipped. ClearPage uses aligned
+watermark strokes or the user's painted mask, not a broad detected rectangle.
+
+Sanster/IOPaint (23,297 stars, archived 2025-08-13)
+https://github.com/Sanster/IOPaint/tree/61a759fb3f332bacdce8b2813f4837495c9b86e0
+Apache-2.0. Inspected iopaint/model/lama.py; used the same TorchScript artifact.
+ClearPage implements bounded 384-pixel output tiles with 64-pixel context,
+disjoint writes, RGB compositing, cancellation, validation and prediction cache.
+The IOPaint app, server, diffusion models and installers are not included.
+
+advimman/lama (10,346 stars)
+https://github.com/advimman/lama/tree/786f5936b27fb3dacd2b1ad799e4de968ea697e7
+Apache-2.0. LaMa pretrained network, original WACV 2022 research implementation.
+No retraining or fine-tuning has been performed. Inference runs on local CPU.
+
+Model publisher: Sanster/models, release add_big_lama
+https://github.com/Sanster/models/releases/download/add_big_lama/big-lama.pt
+Size: 205669692 bytes
+SHA-256: 344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9
+The artifact matches IOPaint's published MD5 and D-Ogi's SHA-256 pin.
+This verifies the specific artifact, not a cryptographic publisher signature.
+
+Licenses: LaMa-LICENSE.txt, IOPaint-LICENSE.txt,
+WatermarkRemover-AI-LICENSE.txt. PyTorch and dependencies' own notices are
+included in the Windows distribution's licenses/ai-runtime directory.

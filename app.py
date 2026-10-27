@@ -1,0 +1,789 @@
+"""ClearPage - Windows local browser application."""
+from pathlib import Path
+import atexit
+import io
+import json
+import os
+import secrets
+import shutil
+import sys
+import tempfile
+import threading
+import time
+import webbrowser
+import base64
+import subprocess
+from functools import wraps
+from flask import Flask, request, jsonify, send_file, make_response
+from werkzeug.serving import make_server, WSGIRequestHandler
+from werkzeug.utils import secure_filename
+from PIL import Image
+import numpy as np
+from engine import inspect_pdf, render_page, known_mask, paint_mask, clean, write_pdf, page_fingerprint, save_reviewed_patch, load_reviewed_patch
+import cv2
+import word_repair
+import auto_restore
+import scan_inversion
+import neural_restore
+import text_restore
+import pdf_overlays
+
+BASE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+TOKEN = secrets.token_urlsafe(32)
+COOKIE_NAME = 'clearpage_' + TOKEN[:12]
+ROOT = Path(tempfile.mkdtemp(prefix='ClearPage-'))
+PROFILE_ROOT = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))/'ClearPage'/'reviewed-pages'
+LOCK = threading.RLock()
+JOBS = {}
+SERVER = None
+HOST = None
+app = Flask(__name__, static_folder=None)
+app.config['MAX_CONTENT_LENGTH'] = 150*1024*1024
+
+
+@app.before_request
+def local_only():
+    if HOST and request.host != HOST:
+        return jsonify(error='This app accepts connections only from its own local window.'), 403
+    if request.headers.get('Origin') and request.headers['Origin'] != f'http://{HOST}':
+        return jsonify(error='Cross-site request rejected.'), 403
+    if request.path == '/' and secrets.compare_digest(request.args.get('key', ''), TOKEN):
+        return None
+    if not secrets.compare_digest(request.cookies.get(COOKIE_NAME, ''), TOKEN):
+        return jsonify(error='Session expired. Reopen ClearPage using its launcher.'), 403
+    if request.method == 'POST' and request.headers.get('X-ClearPage') != 'local':
+        return jsonify(error='Invalid local request.'), 403
+
+
+@app.after_request
+def headers(response):
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    return response
+
+
+@app.errorhandler(413)
+def too_large(error):
+    return jsonify(error='The file is too large. Maximum PDF size is 150 MB.'), 413
+
+
+@app.errorhandler(ValueError)
+def invalid(error):
+    return jsonify(error=str(error)), 400
+
+
+@app.errorhandler(Exception)
+def failure(error):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(error, HTTPException):
+        return jsonify(error=error.description), error.code
+    # Do not expose file paths or document content through error traces.
+    return jsonify(error='Unable to read or process this PDF. Try a valid, unlocked scanned PDF.'), 400
+
+
+def job_for(identifier):
+    if identifier not in JOBS:
+        raise ValueError('This document session has ended. Open the PDF again.')
+    return JOBS[identifier]
+
+
+def public(job):
+    return {key: job[key] for key in ('id', 'name', 'count', 'size', 'options', 'state', 'progress', 'message', 'results', 'overlays') if key in job}
+
+
+def image_path(job, index, after=False):
+    if not 0 <= index < job['count']:
+        raise ValueError('Page number is out of range.')
+    return job['dir']/f'{index}-{ "after" if after else "before"}.png'
+
+
+def original(job, index):
+    path = image_path(job, index)
+    if not path.exists():
+        render_page(job['source'], index).save(path)
+    return path
+
+
+@app.get('/')
+def home():
+    response = make_response(send_file(BASE/'static/index.html'))
+    response.set_cookie(COOKIE_NAME, TOKEN, httponly=True, samesite='Strict')
+    return response
+
+
+@app.get('/static/<name>')
+def static(name):
+    if name not in ('app.js', 'style.css', 'repair.js'):
+        return '', 404
+    return send_file(BASE/'static'/name)
+
+
+@app.post('/api/upload')
+def upload():
+    with LOCK:
+        if len(JOBS) >= 1:
+            raise ValueError('Clear the current document before opening another PDF.')
+        identifier = secrets.token_hex(12)
+        directory = ROOT/identifier
+        directory.mkdir()
+        source = directory/'original.pdf'
+        try:
+            total = 0
+            with source.open('wb') as target:
+                while chunk := request.stream.read(1024*1024):
+                    total += len(chunk)
+                    if total > app.config['MAX_CONTENT_LENGTH']:
+                        raise ValueError('Maximum PDF size is 150 MB.')
+                    target.write(chunk)
+            with source.open('rb') as content:
+                if not content.read(1024).lstrip().startswith(b'%PDF-'):
+                    raise ValueError('Choose a PDF file.')
+            count, sizes = inspect_pdf(source)
+            from urllib.parse import unquote
+            name = secure_filename(unquote(request.headers.get('X-Filename', 'document.pdf')))[:150] or 'document.pdf'
+            job = dict(id=identifier, name=name, dir=directory, source=source, count=count, size=total, options=None,
+                       state='ready', progress=0, message='Ready to preview.', results=[], cancel=False)
+            job['overlays'] = pdf_overlays.inspect(source)
+            JOBS[identifier] = job
+            original(job, 0)
+            return jsonify(public(job))
+        except Exception:
+            shutil.rmtree(directory, ignore_errors=True)
+            raise
+
+
+@app.get('/api/job/<identifier>')
+def status(identifier):
+    return jsonify(public(job_for(identifier)))
+
+
+@app.get('/api/session')
+def session():
+    return jsonify(public(next(iter(JOBS.values()))) if JOBS else None)
+
+
+@app.get('/api/page/<identifier>/<int:index>/<kind>')
+def page(identifier, index, kind):
+    with LOCK:
+        job = job_for(identifier)
+        if kind not in ('before', 'after', 'mask'):
+            raise ValueError('Invalid preview type.')
+        path = original(job, index)
+        if kind == 'after':
+            path = image_path(job, index, True)
+            if not path.exists():
+                path = original(job, index)
+        elif kind == 'mask':
+            path = job['dir']/f'{index}-mask.png'
+            if not path.exists():
+                raise ValueError('Generate a preview first.')
+        return send_file(path, mimetype='image/png')
+
+
+def settings(data):
+    method = data.get('method', 'preset')
+    if method == 'overlay':
+        return dict(method='overlay', mode='careful', strokes=[], use_reviewed=False,
+                    auto_restore=False, scan_inversion=False)
+    mode = data.get('mode', 'careful')
+    if method not in ('preset', 'manual') or mode not in ('careful', 'light', 'strong', 'lama'):
+        raise ValueError('Invalid cleanup settings.')
+    if mode == 'lama' and data.get('scan_inversion'):
+        raise ValueError('Choose LaMa or PureScan for this pass; they use different restoration methods.')
+    strokes = data.get('strokes', [])
+    if data.get('scan_inversion') and method != 'preset':
+        raise ValueError('PureScan alignment currently supports the Huntington preset. Disable it for a custom painted area.')
+    if method == 'manual':
+        test = paint_mask((100, 100), strokes)
+        if not test.any():
+            raise ValueError('Paint over the watermark on the original page first.')
+    return dict(method=method, mode=mode, strokes=strokes, use_reviewed=bool(data.get('use_reviewed', True)),
+                auto_restore=bool(data.get('auto_restore',False)), scan_inversion=bool(data.get('scan_inversion',False)))
+
+
+def cleanup_page(job, index, options):
+    before = original(job, index)
+    image = Image.open(before).convert('RGB')
+    reviewed = load_reviewed_patch(image, PROFILE_ROOT) if options.get('use_reviewed', True) and options['mode']!='lama' else None
+    if reviewed is not None:
+        mask = np.any(reviewed != np.array(image), axis=2)
+        Image.fromarray(reviewed).save(image_path(job, index, True))
+        overlay = np.array(image)
+        overlay[mask] = (overlay[mask]*.45 + np.array([240, 85, 45])*.55).astype('uint8')
+        Image.fromarray(overlay).save(job['dir']/f'{index}-mask.png')
+        return dict(page=index, confidence=1., matched=True, changed=int(mask.sum()), protected=0, reviewed=True, uncertain=False)
+    if options['method'] == 'preset':
+        mask, confidence = known_mask(image, BASE/'assets/huntington.npy', min_score=.35 if options['mode']=='lama' else .18)
+    else:
+        mask, confidence = paint_mask(image.size, options['strokes']), None
+    if options['mode']=='lama':
+        # Cache raw AI output before word repairs. Undo/reprocessing cannot bake
+        # confirmed words into a supposedly fresh prediction or rerun the model.
+        import hashlib
+        key=hashlib.sha256(mask.tobytes()+page_fingerprint(image).encode()).hexdigest()[:24]
+        cache=job['dir']/f'{index}-lama-{key}.png'
+        if cache.exists():result=np.array(Image.open(cache).convert('RGB'))
+        else:
+            result=neural_restore.inpaint(np.array(image),mask,BASE/'models/big-lama.pt',
+                cancelled=lambda:job['cancel'],progress=lambda n,total:job.update(message=f'LaMa: page {index+1} of {job["count"]}, region {n} of {total}.'))
+            Image.fromarray(result).save(cache)
+        stats=dict(changed=int(np.any(result!=np.array(image),axis=2).sum()),protected=0,ai=True)
+    else:
+        result, stats = clean(image, mask, options['mode'])
+    Image.fromarray(result).save(image_path(job, index, True))
+    preview = np.array(image)
+    preview[mask] = (preview[mask]*.45 + np.array([240, 85, 45])*.55).astype('uint8')
+    Image.fromarray(preview).save(job['dir']/f'{index}-mask.png')
+    return dict(page=index, confidence=round(confidence, 3) if confidence is not None else None,
+                matched=bool(mask.any()), reviewed=False, uncertain=(options['mode']=='lama' and bool(mask.any())) or (confidence is not None and .18 <= confidence < .35), **stats)
+
+
+def process_page(job, index, options):
+    if options['method'] == 'overlay':
+        before = np.array(Image.open(original(job, index)).convert('RGB'))
+        target = job['dir']/'overlay-preview.pdf'
+        if not target.exists():
+            pdf_overlays.write_clean(job['source'], target, range(job['count']), lambda: job['cancel'])
+        image = render_page(target, index)
+        image.save(image_path(job, index, True))
+        changed = np.any(np.array(image) != before, axis=2)
+        before[changed] = (before[changed]*.45 + np.array([240,85,45])*.55).astype('uint8')
+        Image.fromarray(before).save(job['dir']/f'{index}-mask.png')
+        info = job['overlays'][index]
+        return dict(page=index, confidence=None, matched=bool(info['overlays']), changed=int(changed.sum()),
+                    protected=0, reviewed=False, uncertain=False, structural=True, **info)
+    result = cleanup_page(job, index, options)
+    path = image_path(job, index, True)
+    image = Image.open(path).convert('RGB')
+    if options.get('scan_inversion'):
+        pixels, details = scan_inversion.apply(Image.open(original(job,index)).convert('RGB'), np.array(image),
+                                               job['inversion_model'], BASE/'assets/huntington.npy')
+        image=Image.fromarray(pixels)
+        result.update(details)
+    for correction in job.get('auto_background',{}).get(index,[]):
+        pixels=np.array(image)
+        pixels.reshape(-1,3)[correction['indices']]=correction['pixels']
+        image=Image.fromarray(pixels)
+    for repair in job.get('automatic',{}).get(index,[]):
+        image.paste(repair['patch'],repair['box'])
+    for repair in job.get('repairs', {}).get(index, []):
+        image.paste(repair['patch'], repair['box'])
+    image.save(path)
+    result['repairs'] = len(job.get('repairs', {}).get(index, []))
+    result['automatic'] = len(job.get('automatic',{}).get(index,[]))
+    result['fitted_words'] = sum(r.get('method')=='font-fit' for r in job.get('automatic',{}).get(index,[]))
+    result['background_pixels'] = sum(len(p['indices']) for p in job.get('auto_background',{}).get(index,[]))
+    result['overlaps'] = job.get('overlaps',{}).get(index,[])
+    result['changed'] = int(np.any(np.array(image) != np.array(Image.open(original(job,index)).convert('RGB')),axis=2).sum())
+    job.pop('pending_repair', None)
+    return result
+
+
+def repair_job(identifier, data):
+    job = job_for(identifier)
+    if (job.get('options') or {}).get('method') == 'overlay':
+        raise ValueError('Website overlay mode preserves the original scan. Switch to image cleanup to repair words.')
+    if job['state'] not in ('review', 'done'):
+        raise ValueError('Process all pages first, then repair words in the cleaned preview.')
+    index = data.get('page')
+    if type(index) is not int or not 0 <= index < job['count']:
+        raise ValueError('Invalid repair page.')
+    return job, index
+
+
+def preview_data(image):
+    memory = io.BytesIO()
+    image.save(memory, format='PNG')
+    return 'data:image/png;base64,' + base64.b64encode(memory.getvalue()).decode('ascii')
+
+
+def local_ocr(path,cache):
+    if not cache.exists():
+        try:
+            subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(BASE/'assets/ocr-word.ps1'),
+                            '-InputPath',str(path),'-OutputPath',str(cache)],check=True,timeout=45,
+                           capture_output=True,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        except (OSError,subprocess.SubprocessError):
+            cache.unlink(missing_ok=True)
+            raise ValueError('Windows OCR is unavailable. Manual word repair is still available; no automatic repairs were applied.')
+    return json.loads(cache.read_text(encoding='utf-8-sig'))
+
+
+def restoration_worker(job,clear=False):
+    """Stage the entire analysis before committing, so cancellation is atomic."""
+    previous={i:list(v) for i,v in job.get('automatic',{}).items()}
+    staged={i:list(v) for i,v in previous.items()}
+    background={i:list(v) for i,v in job.get('auto_background',{}).items()}
+    overlaps={}
+    try:
+        if clear:
+            staged={}
+            background={}
+        else:
+            source_ocr={};clean_ocr={};masks={}
+            def donor_pages():
+                for index in range(job['count']):
+                    if job['cancel']:raise InterruptedError()
+                    with LOCK:
+                        path=original(job,index)
+                        image=Image.open(path).convert('RGB')
+                        if job['options']['method']=='preset':
+                            mask,confidence=known_mask(image,BASE/'assets/huntington.npy',min_score=.35)
+                        else:mask=paint_mask(image.size,job['options']['strokes'])
+                        mask_path=job['dir']/f'{index}-restore-mask.npy'
+                        np.save(mask_path,mask,allow_pickle=False);masks[index]=mask_path
+                    job.update(progress=index+1,message=f'Reading clean word samples: page {index+1} of {job["count"]}.')
+                    source_ocr[index]=local_ocr(path,job['dir']/f'{index}-ocr.json')
+                    yield index,cv2.cvtColor(np.array(image),cv2.COLOR_RGB2GRAY),mask,source_ocr[index]
+            index_words=auto_restore.make_index(donor_pages())
+            total=0
+            for index in range(job['count']):
+                if job['cancel']:raise InterruptedError()
+                job.update(progress=index+1,message=f'Reconstructing matching words: page {index+1} of {job["count"]}; {total} new matches.')
+                with LOCK:
+                    source=Image.open(original(job,index)).convert('RGB')
+                    current=Image.open(image_path(job,index,True)).convert('RGB')
+                    mask=np.load(masks[index],allow_pickle=False)
+                if not mask.any():overlaps[index]=[];continue
+                fingerprint=page_fingerprint(current)[:16]
+                clean_ocr[index]=local_ocr(image_path(job,index,True),job['dir']/f'{index}-{fingerprint}-ocr.json')
+                correction=auto_restore.background_patch(np.array(current),mask,clean_ocr[index])
+                if len(correction['indices']):background.setdefault(index,[]).append(correction)
+                candidates,remaining=auto_restore.proposals(cv2.cvtColor(np.array(source),cv2.COLOR_RGB2GRAY),
+                    cv2.cvtColor(np.array(current),cv2.COLOR_RGB2GRAY),mask,source_ocr[index],clean_ocr[index],index_words)
+                protected=job.get('repairs',{}).get(index,[])+previous.get(index,[])
+                for candidate in candidates:
+                    candidate=dict(candidate)
+                    x,y,xx,yy=candidate['box']
+                    if any(max(x,r['box'][0])<min(xx,r['box'][2]) and max(y,r['box'][1])<min(yy,r['box'][3]) for r in protected):continue
+                    if candidate.get('needs_confirmation'):
+                        remaining.insert(0,dict(text=candidate['ocr_text'],box=candidate['box'],suggested_text=candidate['text'],
+                                                donor_page=candidate['donor_page'],donor_rect=candidate['donor_rect']))
+                        continue
+                    patch=Image.fromarray(candidate.pop('gray')).convert('RGB')
+                    staged.setdefault(index,[]).append(dict(candidate,patch=patch,method='automatic'))
+                    total+=1
+                fitted,suggestions=text_restore.proposals(np.array(source),np.array(current),mask,
+                    source_ocr[index],clean_ocr[index],BASE/'models'/text_restore.MODEL_NAME,
+                    protected=job.get('repairs',{}).get(index,[])+staged.get(index,[]),cancelled=lambda:job['cancel'],
+                    vocabulary=index_words)
+                for candidate in fitted:
+                    patch=Image.fromarray(candidate.pop('gray')).convert('RGB')
+                    staged.setdefault(index,[]).append(dict(candidate,patch=patch))
+                    total+=1
+                boxes=[r['box'] for r in staged.get(index,[])]
+                remaining=[r for r in remaining if not any(max(r['box'][0],b[0])<min(r['box'][2],b[2]) and
+                    max(r['box'][1],b[1])<min(r['box'][3],b[3]) for b in boxes)]
+                remaining=suggestions+remaining
+                overlaps[index]=remaining
+        if job['cancel']:raise InterruptedError()
+        with LOCK:
+            job['automatic']=staged;job['overlaps']=overlaps;job['auto_background']=background
+            for index in range(job['count']):
+                result=process_page(job,index,job['options'])
+                job['results'][index]=result
+            count=sum(len(v) for v in staged.values())
+            job.update(state='review',progress=job['count'],message=('Automatic word repairs removed. Manual repairs are retained.' if clear else
+                f'Restored {count} words using scanned matches and source-matched font fits. Review the listed overlap areas before saving.'))
+    except InterruptedError:
+        job.update(state='review',message='Automatic restoration stopped. No new word repairs were applied.')
+    except ValueError as error:
+        job.update(state='review',message=str(error))
+    except Exception:
+        job.update(state='review',message='Automatic restoration could not finish. Review the existing cleanup or use manual word repair.')
+
+
+@app.post('/api/restore/<identifier>')
+def restore_all_words(identifier):
+    with LOCK:
+        job=job_for(identifier)
+        if (job.get('options') or {}).get('method') == 'overlay':
+            raise ValueError('Word reconstruction is unnecessary in website overlay mode; original scan pixels are preserved.')
+        if job['state'] not in ('review','done'):
+            raise ValueError('Process all pages before restoring words.')
+        job.update(state='restoring',cancel=False,progress=0,message='Preparing automatic word restoration...')
+        clear=request.get_json().get('clear') is True
+        threading.Thread(target=restoration_worker,args=(job,clear),daemon=True).start()
+        return jsonify(public(job))
+
+
+@app.post('/api/repair/<identifier>/read')
+def word_read(identifier):
+    with LOCK:
+        data=request.get_json()
+        job,index=repair_job(identifier,data)
+        current=Image.open(image_path(job,index,True)).convert('RGB')
+        box=word_repair.rectangle(data.get('rect'),current.size)
+        source=Image.open(original(job,index)).convert('RGB')
+        model=BASE/'models'/text_restore.MODEL_NAME
+        return jsonify(original=text_restore.recognize(np.array(source.crop(box)),model),
+                       cleaned=text_restore.recognize(np.array(current.crop(box)),model))
+
+
+@app.post('/api/repair/<identifier>/preview')
+def word_preview(identifier):
+    with LOCK:
+        data = request.get_json()
+        job, index = repair_job(identifier, data)
+        current = Image.open(image_path(job,index,True)).convert('RGB')
+        box = word_repair.rectangle(data.get('rect'),current.size)
+        donor = None
+        if data.get('method') == 'donor':
+            donor_page = data.get('donor_page', index)
+            if type(donor_page) is not int or not 0 <= donor_page < job['count']:
+                raise ValueError('Invalid source page.')
+            donor = Image.open(original(job,donor_page)).convert('RGB')
+            donor_box = word_repair.rectangle(data.get('donor_rect'),donor.size)
+            if donor_page == index and box[0]<donor_box[2] and donor_box[0]<box[2] and box[1]<donor_box[3] and donor_box[1]<box[3]:
+                raise ValueError('Choose a separate, undamaged occurrence of this word.')
+        if data.get('method')=='fit':
+            text=word_repair.confirmed_text(data.get('text'))
+            source=Image.open(original(job,index)).convert('RGB')
+            if job['options']['method']=='preset':
+                mask,_=known_mask(source,BASE/'assets/huntington.npy',min_score=.35)
+            else:mask=paint_mask(source.size,job['options']['strokes'])
+            x,y,xx,yy=box
+            if not mask[y:yy,x:xx].any():raise ValueError('Select a word that intersects the watermark.')
+            excluded=cv2.dilate(mask.astype('uint8'),np.ones((3,3),'uint8'))>0
+            fitted=text_restore.fit(cv2.cvtColor(np.array(source),cv2.COLOR_RGB2GRAY),excluded,box,text)
+            if fitted is None or fitted['score']<.85:
+                raise ValueError('Too little matching original ink remains for a reliable font fit. Copy an intact occurrence or render confirmed text instead.')
+            patch=Image.fromarray(fitted['gray']).convert('RGB')
+            message='Fitted font, size, position and ink weight to surviving original letters. Confirm the wording and inspect the preview; shape similarity does not verify text.'
+        elif data.get('method')=='lama':
+            word_repair.confirmed_text(data.get('text'))
+            source=Image.open(original(job,index)).convert('RGB')
+            if job['options']['method']=='preset':
+                mask,_=known_mask(source,BASE/'assets/huntington.npy',min_score=.35)
+            else:mask=paint_mask(source.size,job['options']['strokes'])
+            scope=np.zeros_like(mask);x,y,xx,yy=box;scope[y:yy,x:xx]=mask[y:yy,x:xx]
+            if not scope.any():raise ValueError('This word does not intersect the selected watermark. Use a clean occurrence or confirmed text.')
+            pixels=neural_restore.inpaint(np.array(source),scope,BASE/'models/big-lama.pt')
+            combined=np.array(current);combined[scope]=pixels[scope]
+            patch=Image.fromarray(combined).crop(box)
+            message='LaMa reconstructed the masked strokes. Your wording is a review reference, not a model instruction. Check each letter: AI can invent or omit strokes.'
+        else:
+            patch, message = word_repair.make_patch(current, box, data, donor)
+        token = secrets.token_hex(16)
+        job['pending_repair'] = dict(token=token,page=index,base=page_fingerprint(current),box=box,patch=patch,
+                                     text=word_repair.confirmed_text(data['text']),method=data['method'])
+        # Show context as well as letters, so baseline shifts and covered neighbours are visible.
+        context = (max(0,box[0]-25),max(0,box[1]-12),min(current.width,box[2]+25),min(current.height,box[3]+12))
+        after = current.copy()
+        after.paste(patch,box)
+        return jsonify(token=token,before=preview_data(current.crop(context)),after=preview_data(after.crop(context)),message=message)
+
+
+@app.post('/api/repair/<identifier>/apply')
+def word_apply(identifier):
+    with LOCK:
+        data = request.get_json()
+        job,index = repair_job(identifier,data)
+        pending = job.get('pending_repair')
+        if not pending or data.get('token') != pending['token'] or pending['page'] != index:
+            raise ValueError('Create a fresh repair preview first.')
+        current = Image.open(image_path(job,index,True)).convert('RGB')
+        if page_fingerprint(current) != pending['base']:
+            raise ValueError('This page changed. Preview the repair again.')
+        if data.get('confirmed') is not True:
+            raise ValueError('Confirm the wording and appearance before applying.')
+        history = job.setdefault('repairs',{}).setdefault(index,[])
+        if len(history) >= 200:
+            raise ValueError('This page has reached the limit of 200 word repairs.')
+        history.append({k:pending[k] for k in ('box','patch','text','method')})
+        current.paste(pending['patch'],pending['box'])
+        current.save(image_path(job,index,True))
+        job.pop('pending_repair',None)
+        update_repair_result(job,index,current)
+        return jsonify(public(job))
+
+
+def update_repair_result(job,index,current):
+    result = next(r for r in job['results'] if r['page']==index)
+    result['repairs'] = len(job.get('repairs',{}).get(index,[]))
+    result['changed'] = int(np.any(np.array(current)!=np.array(Image.open(original(job,index)).convert('RGB')),axis=2).sum())
+    job.update(state='review',message='Word repair updated. Review and build the complete PDF again.')
+
+
+@app.post('/api/repair/<identifier>/undo')
+def word_undo(identifier):
+    with LOCK:
+        job,index = repair_job(identifier,request.get_json())
+        history = job.get('repairs',{}).get(index,[])
+        if not history:
+            raise ValueError('There are no word repairs to undo on this page.')
+        history.pop()
+        result = process_page(job,index,job['options'])
+        job['results'] = [result if r['page']==index else r for r in job['results']]
+        job.update(state='review',message='Last word repair undone. Build the PDF again to save this version.')
+        return jsonify(public(job))
+
+
+@app.post('/api/repair/<identifier>/find')
+def word_find(identifier):
+    with LOCK:
+        data = request.get_json()
+        job,index = repair_job(identifier,data)
+        source_page = data.get('donor_page',index)
+        if type(source_page) is not int or not 0 <= source_page < job['count']:
+            raise ValueError('Invalid source page.')
+        text = word_repair.confirmed_text(data.get('text'))
+        path = original(job,source_page)
+        cache = job['dir']/f'{source_page}-ocr.json'
+        ocr=local_ocr(path,cache)
+        image = Image.open(path).convert('RGB')
+        mask,_ = known_mask(image,BASE/'assets/huntington.npy',min_score=.18)
+        matches = word_repair.exact_matches(ocr,text,image.size,mask)
+        found=[]
+        for rect in matches:
+            try: box=word_repair.rectangle(rect,image.size)
+            except ValueError: continue
+            found.append(dict(rect=rect,image=preview_data(image.crop(box))))
+        return jsonify(matches=found)
+
+
+@app.get('/api/repair/<identifier>/history')
+def word_history(identifier):
+    with LOCK:
+        job = job_for(identifier)
+        items = [dict(page=index+1,rectangle=list(r['box']),confirmed_text=r['text'],method=r['method'])
+                 for index,repairs in job.get('repairs',{}).items() for r in repairs]
+        items += [dict(page=index+1,rectangle=list(r['box']),matched_text=r['text'],method=r.get('method','automatic'),
+                       donor_page=r['donor_page']+1 if 'donor_page' in r else None,
+                       font=r.get('font'),match_score=r['score'])
+                  for index,repairs in job.get('automatic',{}).items() for r in repairs]
+        memory = io.BytesIO(json.dumps(dict(document=job['name'],repairs=items),indent=2).encode('utf-8'))
+        return send_file(memory,as_attachment=True,download_name='word-repairs.json',mimetype='application/json')
+
+
+@app.post('/api/preview/<identifier>')
+def preview(identifier):
+    with LOCK:
+        job = job_for(identifier)
+        if job['state'] in ('processing', 'exporting', 'learning', 'restoring'):
+            raise ValueError('Wait for the current operation to finish.')
+        data = request.get_json()
+        options = settings(data)
+        if options.get('scan_inversion') and 'inversion_model' not in job:
+            raise ValueError('Process all pages once with PureScan enabled to learn this document’s watermark. Individual previews are available afterward.')
+        index = int(data.get('page', 0))
+        result = process_page(job, index, options)
+        # A preview belongs to new settings; old all-page results are no longer exportable.
+        job.update(state='ready', results=[], options=options, message='Preview ready. Process all pages when satisfied.')
+        return jsonify(result)
+
+
+def batch(job, options):
+    try:
+        if options.get('scan_inversion') and 'inversion_model' not in job:
+            def pages():
+                for index in range(job['count']):
+                    with LOCK:
+                        image=Image.open(original(job,index)).convert('RGB')
+                    yield index,image
+            def progress(index):
+                job.update(progress=index+1,message=f'Learning the blended watermark: page {index+1} of {job["count"]}.')
+            model=scan_inversion.learn_template(pages(),BASE/'assets/huntington.npy',lambda:job['cancel'],progress)
+            if job['cancel']:
+                raise InterruptedError()
+            job['inversion_model']=model
+        for index in range(job['count']):
+            with LOCK:
+                if job['cancel']:
+                    job.update(state='cancelled', message='Stopped. The original PDF is unchanged.')
+                    return
+                result = process_page(job, index, options)
+                job['results'].append(result)
+                job.update(progress=index+1, message=f'Processed page {index+1} of {job["count"]}.')
+        if options.get('auto_restore'):
+            job.update(state='restoring',progress=0,message='Finding intact words for automatic restoration...')
+            restoration_worker(job)
+        else:
+            job.update(state='review', message='Review the results, then save your complete PDF.')
+    except InterruptedError:
+        job.update(state='cancelled', message='Stopped. The original PDF is unchanged.')
+    except ValueError as error:
+        job.update(state='error', message=str(error))
+    except Exception as error:
+        job.update(state='error', message='Processing failed. The original PDF is unchanged. Clear the document and try again.')
+
+
+@app.post('/api/process/<identifier>')
+def process(identifier):
+    with LOCK:
+        job = job_for(identifier)
+        if job['state'] in ('processing', 'exporting', 'learning', 'restoring'):
+            raise ValueError('An operation is already running.')
+        options = settings(request.get_json())
+        job.update(state='processing', progress=0, results=[], options=options, cancel=False, message='Starting cleanup...')
+        threading.Thread(target=batch, args=(job, options), daemon=True).start()
+        return jsonify(public(job))
+
+
+@app.post('/api/cancel/<identifier>')
+def cancel(identifier):
+    job_for(identifier)['cancel'] = True
+    return jsonify(ok=True)
+
+
+def export_worker(job, keep):
+    try:
+        with LOCK:
+            if job['options']['method'] == 'overlay':
+                pdf_overlays.write_clean(job['source'], job['dir']/'cleaned.pdf', keep, lambda: job['cancel'])
+            else:
+                edits = {i: (original(job, i), image_path(job, i, True)) for i in keep}
+                write_pdf(job['source'], job['dir']/'cleaned.pdf', edits, lambda: job['cancel'])
+        job.update(state='done', message='Your complete PDF is ready to save.')
+    except InterruptedError:
+        job.update(state='review', message='Export cancelled. Your reviewed pages are still available.')
+    except Exception:
+        job.update(state='review', message='Could not export. Try keeping fewer cleaned pages.')
+
+
+@app.post('/api/export/<identifier>')
+def export(identifier):
+    job = job_for(identifier)
+    if job['state'] not in ('review', 'done'):
+        raise ValueError('Process and review all pages before exporting.')
+    values = request.get_json().get('keep', [])
+    if not isinstance(values, list) or any(type(v) is not int or not 0 <= v < job['count'] for v in values):
+        raise ValueError('Invalid page selection.')
+    keep = sorted(set(values))
+    job.update(state='exporting', cancel=False, message='Building the complete PDF...')
+    threading.Thread(target=export_worker, args=(job, keep), daemon=True).start()
+    return jsonify(public(job))
+
+
+@app.get('/api/download/<identifier>')
+def download(identifier):
+    job = job_for(identifier)
+    if job['state'] != 'done':
+        raise ValueError('The PDF is not ready yet.')
+    return send_file(job['dir']/'cleaned.pdf', as_attachment=True,
+                     download_name=Path(job['name']).stem+'_ClearPage-1.7.pdf', mimetype='application/pdf')
+
+
+@app.post('/api/clear/<identifier>')
+def clear(identifier):
+    job = job_for(identifier)
+    if job['state'] in ('processing', 'exporting', 'learning', 'restoring'):
+        raise ValueError('Stop processing before clearing this document.')
+    with LOCK:
+        shutil.rmtree(job['dir'])
+        del JOBS[identifier]
+    return jsonify(ok=True)
+
+
+def learn_worker(job, reference):
+    staging = job['dir']/'patches'
+    staging.mkdir(exist_ok=True)
+    pending = []
+    try:
+        with LOCK:
+            count, sizes = inspect_pdf(reference)
+            original_count, original_sizes = inspect_pdf(job['source'])
+            if count != original_count or sizes != original_sizes:
+                raise ValueError('Use the same pages, in the same order and with the same dimensions.')
+        for index in range(job['count']):
+            with LOCK:
+                if job['cancel']:
+                    raise InterruptedError('Import cancelled. No repairs were saved.')
+                source = Image.open(original(job, index)).convert('RGB')
+                result = render_page(reference, index)
+                if result.size != source.size:
+                    raise ValueError(f'Page {index+1}: page dimensions differ.')
+                changed = np.any(np.array(source) != np.array(result), axis=2)
+                if changed.any():
+                    mask, score = known_mask(source, BASE/'assets/huntington.npy', min_score=.18)
+                    allowed = cv2.dilate(mask.astype('uint8'), np.ones((11, 11), 'uint8')) > 0
+                    fingerprint = page_fingerprint(source)
+                    target = staging/(fingerprint+'.npz')
+                    try:
+                        save_reviewed_patch(source, result, allowed, target)
+                    except ValueError as error:
+                        raise ValueError(f'Page {index+1}: {error}') from error
+                    pending.append((target, fingerprint))
+                job.update(progress=index+1, message=f'Checking reviewed page {index+1} of {job["count"]}...')
+        if job['cancel']:
+            raise InterruptedError('Import cancelled. No repairs were saved.')
+        if pending:
+            PROFILE_ROOT.mkdir(parents=True, exist_ok=True)
+            for target, fingerprint in pending:
+                os.replace(target, PROFILE_ROOT/(fingerprint+'.npz'))
+        job.update(state='ready', results=[], message=f'Imported {len(pending)} reviewed pages. Process all pages to apply matching repairs.')
+    except (ValueError, InterruptedError) as error:
+        job.update(state='ready', message=str(error))
+    except Exception:
+        job.update(state='ready', message='Could not import the reviewed PDF. Check that it is the correct copy.')
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+        reference.unlink(missing_ok=True)
+
+
+@app.post('/api/reviewed/<identifier>')
+def import_reviewed(identifier):
+    with LOCK:
+        job = job_for(identifier)
+        if job['state'] in ('processing', 'exporting', 'learning', 'restoring'):
+            raise ValueError('Wait for the current operation to finish.')
+        target = job['dir']/'reviewed.pdf'
+        try:
+            with target.open('wb') as output:
+                total = 0
+                while chunk := request.stream.read(1024*1024):
+                    total += len(chunk)
+                    if total > app.config['MAX_CONTENT_LENGTH']:
+                        raise ValueError('Maximum PDF size is 150 MB.')
+                    output.write(chunk)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        job.update(state='learning', progress=0, results=[], cancel=False, message='Checking the reviewed copy...')
+        threading.Thread(target=learn_worker, args=(job, target), daemon=True).start()
+        return jsonify(public(job))
+
+
+@app.post('/api/quit')
+def quit_app():
+    for job in JOBS.values():
+        job['cancel'] = True
+    if SERVER:
+        threading.Thread(target=SERVER.shutdown, daemon=True).start()
+    return jsonify(ok=True)
+
+
+def cleanup():
+    with LOCK:
+        shutil.rmtree(ROOT, ignore_errors=True)
+
+
+atexit.register(cleanup)
+
+
+class QuietHandler(WSGIRequestHandler):
+    def log(self, *args, **kwargs):
+        pass
+
+
+def main():
+    global SERVER, HOST
+    SERVER = make_server('127.0.0.1', 0, app, threaded=True, request_handler=QuietHandler)
+    HOST = f'127.0.0.1:{SERVER.server_port}'
+    url = f'http://{HOST}/?key={TOKEN}'
+    if '--test-info' in sys.argv:
+        info = Path(sys.argv[sys.argv.index('--test-info')+1])
+        info.write_text(json.dumps({'url': url}), encoding='utf-8')
+    else:
+        webbrowser.open(url)
+    try:
+        SERVER.serve_forever()
+    finally:
+        SERVER.server_close()
+        cleanup()
+
+
+if __name__ == '__main__':
+    main()
