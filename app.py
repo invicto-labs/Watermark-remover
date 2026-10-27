@@ -876,6 +876,10 @@ class QuietHandler(WSGIRequestHandler):
 
 def main():
     global SERVER, HOST
+    if '--release-self-test' in sys.argv:
+        from release_selftest import run
+        run(BASE, Path(sys.argv[sys.argv.index('--release-self-test')+1]))
+        return
     SERVER = make_server('127.0.0.1', 0, app, threaded=True, request_handler=QuietHandler)
     HOST = f'127.0.0.1:{SERVER.server_port}'
     url = f'http://{HOST}/?key={TOKEN}'

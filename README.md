@@ -199,14 +199,25 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe app.py
 ```
 
-To build a portable Windows folder:
+To build and verify the portable Windows package from a fresh checkout:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install pyinstaller==6.22.3
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --windowed --name ClearPage --add-data "static;static" --add-data "assets;assets" --add-data "models;models" --collect-all pypdfium2 --collect-all pypdfium2_raw app.py
+.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt
+.\.venv\Scripts\python.exe -m unittest discover -v -p 'test_*.py'
+.\.venv\Scripts\python.exe scripts/release.py build
+.\.venv\Scripts\python.exe scripts/release.py verify
 ```
 
-Share the entire `dist/ClearPage` folder as a ZIP. A code-signing certificate, managed installer, centralized updates, and enterprise deployment are not included in this first local release. The source and application contain no company document or repaired document text. The watermark preset contains only the repeating watermark pattern.
+The verified ZIP, SHA-256 checksums and build report are in `release-assets/`.
+Publishing a version on GitHub runs the same tests and Windows build automatically,
+then attaches the verified files to the release. Use **Actions → Windows release →
+Run workflow** for a test build without publishing. See [RELEASING.md](RELEASING.md)
+for version tags, failed builds and immutable releases.
+
+Share the complete ZIP, including `_internal`. Code signing, a managed installer,
+and automatic employee updates are not included. The source and application
+contain no company document or repaired document text. The watermark preset
+contains only the repeating watermark pattern.
 
 ## Verification
 
