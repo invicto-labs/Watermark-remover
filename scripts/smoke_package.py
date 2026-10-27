@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+import zipfile
 import numpy as np
 from PIL import Image, ImageDraw
 from reportlab.pdfgen.canvas import Canvas
@@ -26,7 +27,7 @@ def check_package(bundle, version):
     with tempfile.TemporaryDirectory(prefix='ClearPage-release-') as folder:
         root = Path(folder)
         # Keep all smoke-test state out of the developer or runner user profile.
-        env = dict(os.environ, LOCALAPPDATA=str(root/'profile'), TEMP=str(root), TMP=str(root))
+        env = dict(os.environ, LOCALAPPDATA=str(root/'profile'), CLEARPAGE_DATA_DIR=str(root/'private'), TEMP=str(root), TMP=str(root))
         flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         report = root/'models.json'
         subprocess.run([str(executable), '--release-self-test', str(report)],
@@ -67,7 +68,7 @@ def check_package(bundle, version):
             base = launch.split('/?')[0]
             with client.open(launch, timeout=30) as response:
                 require(f'ClearPage {version}' in response.read().decode(), 'Wrong application version.')
-            for asset in ('app.js', 'style.css', 'repair.js'):
+            for asset in ('app.js', 'style.css', 'repair.js', 'workspace.js'):
                 require(len(get('/static/'+asset)) > 100, 'Missing static asset: '+asset)
             positive = Image.new('RGB', (600, 800), 'white')
             draw = ImageDraw.Draw(positive)
@@ -117,11 +118,51 @@ def check_package(bundle, version):
                     require(np.array_equal(engine.render_page(exported, 1), positive), 'Unselected TIFF page changed.')
                 verified.append(kind)
                 post('/api/clear/'+identifier, {})
+            # Verify the new multi-file workflow inside the extracted executable.
+            ids=[]
+            for name,data,kind in fixtures[:2]:
+                item=post('/api/upload',data,name);ids.append(item['id'])
+                post('/api/view/'+item['id'],dict(options=dict(method='polarity',polarity_pages=[0]),page=0))
+            def wait_queue():
+                deadline=time.monotonic()+90
+                while time.monotonic()<deadline:
+                    state=json.loads(get('/api/workspace'))
+                    if not state['queue']['active']:return state
+                    time.sleep(.2)
+                raise TimeoutError('Packaged queue timed out.')
+            post('/api/queue',{'ids':ids})
+            state=wait_queue()
+            for item in state['jobs']:
+                require(item['state']=='review' and item['ui']['keep']==[], 'Uncertain pages were automatically selected.')
+                post('/api/view/'+item['id'],dict(options=item['options'],page=0,keep=[0],reviewed=[0],confirmed=True))
+            post('/api/queue',{'ids':ids,'export':True})
+            require(wait_queue()['queue']['zip_ready'], 'Reviewed ZIP was not created.')
+            with zipfile.ZipFile(BytesIO(get('/api/queue/download'))) as archive:
+                require(len(archive.namelist())==2, 'ZIP omitted a reviewed document.')
+                for name in archive.namelist():
+                    target=root/name;target.write_bytes(archive.read(name))
+                    require(np.array_equal(engine.render_page(target,0),marked), 'Queued inversion changed unexpected pixels.')
+                    require(len(engine.inspect_pdf(target)[1])==(2 if 'mixed' in name else 1), 'Queued export lost pages.')
+            saved=post('/api/save-work',{})
+            post('/api/quit',{});process.wait(timeout=20)
+            require(process.returncode==0,'First process did not close cleanly.')
+            info.unlink()
+            process=subprocess.Popen([str(executable),'--test-info',str(info)],env=env,creationflags=flags)
+            deadline=time.monotonic()+60
+            while not info.exists() and time.monotonic()<deadline:
+                require(process.poll() is None,'Restarted app exited during startup.');time.sleep(.2)
+            launch=json.loads(info.read_text())['url'];base=launch.split('/?')[0]
+            client.open(launch,timeout=30).close()
+            require(any(s['id']==saved['id'] for s in json.loads(get('/api/saved'))),'Saved workspace was not found after restart.')
+            post('/api/resume/'+saved['id'],{})
+            restored=json.loads(get('/api/workspace'))['jobs']
+            require(len(restored)==2 and all(j['ui']['confirmed'] and j['ui']['keep']==[0] for j in restored),
+                    'Restart did not restore review choices.')
             post('/api/quit', {})
             process.wait(timeout=20)
             require(process.returncode == 0, 'Application did not exit cleanly.')
             return dict(models=model_checks, formats=verified, selected_export=True,
-                        unselected_pages_preserved=True, clean_shutdown=True)
+                        unselected_pages_preserved=True, multi_file_zip=True, restart_resume=True, clean_shutdown=True)
         finally:
             if process.poll() is None:
                 if base:

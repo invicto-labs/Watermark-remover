@@ -1,7 +1,37 @@
-# ClearPage 1.9
+# ClearPage 2.0
 
 A local Windows application for watermark cleanup in PDFs and scanned images.
 
+## New in 2.0
+
+- **File queue:** open up to 20 PDFs/scans (150 MB per input, 500 MB total).
+  Each file retains its own cleanup settings. Clean waiting files sequentially;
+  stop the queue without changing the original input files.
+- **Review before ZIP:** compare each changed page, choose whether to keep its
+  original or cleaned appearance, and mark it reviewed. Finish the file review
+  to include it in **Create reviewed ZIP**. Only finished reviews are included;
+  each output PDF retains every page. Duplicate input names get numbered outputs.
+- **Save and resume:** **Save work** or **Save & close** writes a local checkpoint
+  containing the input copies, previews, page choices, accepted word repairs,
+  undo history and PureScan model. Reopen the app and choose **Resume**. Save again
+  after further edits; closing the browser alone does not create a checkpoint.
+  Up to five workspaces, each up to 2 GB uncompressed, can be saved. A failed save
+  keeps the previous checkpoint. These local ZIPs are not encrypted and should
+  be treated as company documents. Delete saved copies from the welcome screen.
+- **Review tools:** synchronized zoom and scrolling, highlighting of actual
+  changed pixels, page review labels, and a next-page-to-review button that
+  prioritizes uncertain corrections. Highlighting is never added to exports.
+- **Saved setups:** save named cleanup settings, including a custom painted
+  area, for reuse. Per-page inversion overrides are not transferred. This is
+  settings reuse, not a newly trained detector; additional county templates
+  still require representative samples and validation.
+- **Updates:** click **Check for updates** to query the public Invicto GitHub
+  release metadata. The app offers the release page only when a newer stable
+  Windows ZIP is available. It never uploads documents or installs updates.
+
+Batch defaults use the existing Careful cleanup with automatic word restoration
+off; enable it per file when needed. The underlying removal models are unchanged.
+This release adds workflow and review controls, not a new accuracy percentage.
 
 ## New in 1.9
 
@@ -55,7 +85,7 @@ and preservation; they do not claim word accuracy or an overall percentage.
 
 ## Employees: start here
 
-1. Extract **the entire ClearPage-1.9-Windows.zip** to a new folder on your computer.
+1. Extract **the entire ClearPage-2.0-Windows-x64.zip** to a new folder on your computer.
 2. Open the ClearPage folder and double-click **ClearPage.exe**. Keep the `_internal` folder beside the application.
 3. The app opens in your default browser. Processing happens on your computer; an internet connection and Python installation are not required.
 4. Click **Choose a PDF or scan**, or drag a supported file onto the upload box. Recognized website overlays use the same automatic selection as before. Other PDF types can be selected under **More options**.
@@ -131,7 +161,7 @@ The new pass only touches the known watermark region, keeps previously changed p
 
 The preview reports how many pixels the inversion pass changed before word restoration. The feature is opt-in and does not claim lossless restoration of real scans. The source and Windows distribution include PureScan's MIT license and pinned provenance. No new network calls, models, or GPU requirements are introduced.
 
-Exports and the page title now identify **ClearPage 1.9** so results can be distinguished from older app windows.
+Exports and the page title identify **ClearPage 2.0** so results can be distinguished from older app windows.
 
 ## Automatic word restoration (introduced in 1.3)
 
@@ -156,7 +186,7 @@ Enter the exact wording you have checked. Choose one of two methods:
 
 Click **Preview word repair**, inspect the enlarged before/after crops and their surrounding text, confirm, then **Apply this word repair**. Preview does not change the page. Only the selected rectangle changes when applied. Use **Undo last word repair** to step back on the current page. Reprocessing this document retains your applied repairs. Rebuild the complete PDF after edits. Unchecking a page still exports its original, including original words.
 
-**Save repair log** downloads the wording, page numbers and rectangles for applied word repairs in this session. Repairs and their undo history remain only until you clear the document or exit; save your PDF and log first. These word repairs are not automatically added to the persistent reviewed-page library. Importing a reviewed PDF still requires all differences to fall inside the allowed watermark region.
+**Save repair log** downloads the wording, page numbers and rectangles for applied word repairs. **Save work** and **Save & close** preserve accepted repairs and undo history in a local checkpoint. Removing an open file does not delete an earlier saved checkpoint. These repairs are not automatically added to the reviewed-page library. Importing a reviewed PDF still requires all differences to fall inside the allowed watermark region.
 
 The finder requires a locally installed Windows OCR language and permission to run the bundled PowerShell helper. It never changes execution policy. If your device blocks OCR, manual source selection and typed reconstruction remain available. Windows fonts are loaded from the employee’s computer, not redistributed. No document wording is sent online or silently inferred.
 
@@ -181,9 +211,9 @@ This is **visual cleanup, not secure redaction**. It adds visible corrections wh
 
 ## Privacy and lifecycle
 
-No cloud services, telemetry, or internet requests are used. The app binds to a random port on `127.0.0.1`, requires a random local session cookie, and rejects cross-site mutations. This is a single-user application, not a network server.
+Document processing is local. There is no telemetry. The optional **Check for updates** button requests public release metadata from GitHub; it sends no documents, filenames or repair text. The app binds to a random port on `127.0.0.1`, requires a random local session cookie, and rejects cross-site mutations. This is a single-user application, not a network server.
 
-Working copies are stored in a randomly named `ClearPage-...` directory under your Windows temporary folder. **Clear document** removes the current working copies; **Exit app** removes the session directory and stops the server. Downloaded PDFs remain where you save them. Abrupt termination, a crash, or a power loss can leave temporary files behind; these can be removed from `%TEMP%` once ClearPage is closed. Files are deleted normally, not securely erased. Keep downloaded company documents in an approved local folder.
+Working copies are stored in a randomly named `ClearPage-...` directory under your Windows temporary folder. **Remove this file** removes its open working copy. **Save & close** saves a checkpoint, removes the temporary session directory and stops the server. Checkpoints persist under `%LOCALAPPDATA%\ClearPage\saved-work`; named settings are in `cleanup-presets.json` beside that folder. Delete saved workspaces separately from the welcome screen. Downloaded PDFs remain where you save them. Abrupt termination can leave temporary files behind; these can be removed from `%TEMP%` once ClearPage is closed. Files are deleted normally, not securely erased. Keep company documents in an approved local folder. Developers can set `CLEARPAGE_DATA_DIR` to isolate test checkpoints and settings.
 
 Imported reviewed repairs persist under `%LOCALAPPDATA%\ClearPage\reviewed-pages`. They contain small corrected image regions that may include document text. They are not uploaded or included in the distributable application ZIP. To forget them, close ClearPage and delete that folder. Each employee maintains their own library; follow company rules when sharing reviewed documents.
 

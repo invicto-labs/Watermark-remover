@@ -93,7 +93,15 @@ def job_for(identifier):
 
 
 def public(job):
-    return {key: job[key] for key in ('id', 'name', 'count', 'size', 'options', 'state', 'progress', 'message', 'results', 'overlays', 'input_type', 'input_note') if key in job}
+    return {key: job[key] for key in ('id', 'name', 'count', 'size', 'options', 'state', 'progress', 'message', 'results', 'overlays', 'input_type', 'input_note', 'ui') if key in job}
+
+
+def require_new_review(job, index=None):
+    ui=job.get('ui', {})
+    ui['confirmed']=False
+    ui['reviewed']=[i for i in ui.get('reviewed',[]) if index is not None and i!=index]
+    job['ui']=ui
+    WORK['zip_ready']=False
 
 
 def image_path(job, index, after=False):
@@ -158,7 +166,7 @@ def home():
 
 @app.get('/static/<name>')
 def static(name):
-    if name not in ('app.js', 'style.css', 'repair.js'):
+    if name not in ('app.js', 'style.css', 'repair.js', 'workspace.js'):
         return '', 404
     return send_file(BASE/'static'/name)
 
@@ -166,8 +174,8 @@ def static(name):
 @app.post('/api/upload')
 def upload():
     with LOCK:
-        if len(JOBS) >= 1:
-            raise ValueError('Clear the current document before opening another file.')
+        if len(JOBS) >= 20:
+            raise ValueError('Up to 20 files can be open. Remove a finished file before adding another.')
         identifier = secrets.token_hex(12)
         directory = ROOT/identifier
         directory.mkdir()
@@ -180,6 +188,8 @@ def upload():
                     total += len(chunk)
                     if total > app.config['MAX_CONTENT_LENGTH']:
                         raise ValueError('Maximum file size is 150 MB.')
+                    if total + sum(j['size'] for j in JOBS.values()) > 500*1024*1024:
+                        raise ValueError('The open files exceed 500 MB. Remove finished files before adding more.')
                     target.write(chunk)
             with incoming.open('rb') as content:
                 is_pdf = content.read(1024).lstrip().startswith(b'%PDF-')
@@ -196,6 +206,7 @@ def upload():
             job['overlays'] = pdf_overlays.inspect(source)
             original(job, 0)
             JOBS[identifier] = job
+            WORK['zip_ready'] = False
             return jsonify(public(job))
         except Exception:
             shutil.rmtree(directory, ignore_errors=True)
@@ -479,6 +490,7 @@ def restore_all_words(identifier):
         if job['state'] not in ('review','done'):
             raise ValueError('Process all pages before restoring words.')
         job.update(state='restoring',cancel=False,progress=0,message='Preparing automatic word restoration...')
+        require_new_review(job)
         clear=request.get_json().get('clear') is True
         threading.Thread(target=restoration_worker,args=(job,clear),daemon=True).start()
         return jsonify(public(job))
@@ -576,6 +588,7 @@ def word_apply(identifier):
 
 
 def update_repair_result(job,index,current):
+    require_new_review(job,index)
     result = next(r for r in job['results'] if r['page']==index)
     result['repairs'] = len(job.get('repairs',{}).get(index,[]))
     result['changed'] = int(np.any(np.array(current)!=np.array(Image.open(original(job,index)).convert('RGB')),axis=2).sum())
@@ -590,6 +603,7 @@ def word_undo(identifier):
         if not history:
             raise ValueError('There are no word repairs to undo on this page.')
         history.pop()
+        require_new_review(job,index)
         result = process_page(job,index,job['options'])
         job['results'] = [result if r['page']==index else r for r in job['results']]
         job.update(state='review',message='Last word repair undone. Build the PDF again to save this version.')
@@ -648,6 +662,8 @@ def preview(identifier):
         result = process_page(job, index, options)
         # A preview belongs to new settings; old all-page results are no longer exportable.
         job.update(state='ready', results=[], options=options, message='Preview ready. Process all pages when satisfied.')
+        job['ui']={}
+        WORK['zip_ready']=False
         return jsonify(result)
 
 
@@ -694,7 +710,8 @@ def process(identifier):
             raise ValueError('An operation is already running.')
         options = settings(request.get_json())
         prepare_options(job, options)
-        job.update(state='processing', progress=0, results=[], options=options, cancel=False, message='Starting cleanup...')
+        job.update(state='processing', progress=0, results=[], options=options, cancel=False, message='Starting cleanup...', ui={})
+        WORK['zip_ready'] = False
         threading.Thread(target=batch, args=(job, options), daemon=True).start()
         return jsonify(public(job))
 
@@ -718,7 +735,7 @@ def export_worker(job, keep):
             else:
                 edits = {i: (original(job, i), image_path(job, i, True)) for i in keep}
                 write_pdf(job['source'], job['dir']/'cleaned.pdf', edits, lambda: job['cancel'])
-        job.update(state='done', message='Your complete PDF is ready to save.')
+        job.update(state='done', export_keep=list(keep), message='Your complete PDF is ready to save.')
     except InterruptedError:
         job.update(state='review', message='Export cancelled. Your reviewed pages are still available.')
     except Exception:
@@ -745,7 +762,7 @@ def download(identifier):
     if job['state'] != 'done':
         raise ValueError('The PDF is not ready yet.')
     return send_file(job['dir']/'cleaned.pdf', as_attachment=True,
-                     download_name=Path(job['name']).stem+'_ClearPage-1.9.pdf', mimetype='application/pdf')
+                     download_name=Path(job['name']).stem+'_ClearPage-2.0.pdf', mimetype='application/pdf')
 
 
 @app.post('/api/compare/<identifier>/<int:index>')
@@ -780,6 +797,7 @@ def clear(identifier):
     with LOCK:
         shutil.rmtree(job['dir'])
         del JOBS[identifier]
+        WORK['zip_ready'] = False
     return jsonify(ok=True)
 
 
@@ -848,12 +866,15 @@ def import_reviewed(identifier):
             target.unlink(missing_ok=True)
             raise
         job.update(state='learning', progress=0, results=[], cancel=False, message='Checking the reviewed copy...')
+        job['ui']={}
+        WORK['zip_ready']=False
         threading.Thread(target=learn_worker, args=(job, target), daemon=True).start()
         return jsonify(public(job))
 
 
 @app.post('/api/quit')
 def quit_app():
+    WORK['stop'] = True
     for job in JOBS.values():
         job['cancel'] = True
     if SERVER:
@@ -893,6 +914,10 @@ def main():
     finally:
         SERVER.server_close()
         cleanup()
+
+
+import workspace
+workspace.register(sys.modules[__name__])
 
 
 if __name__ == '__main__':

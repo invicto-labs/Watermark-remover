@@ -51,8 +51,8 @@ async function loadPage() {
  const src=imageURL('before');
  await new Promise(resolve=>{ $('before').onload=resolve;$('before').onerror=()=>{notice('Could not load this page.',true);resolve();};$('before').src=src; });
  if(current!==loadingPage)return;
- $('after').src=imageURL(previewed.has(page)?($('showMask').checked?'mask':'after'):'before');
- $('previewState').textContent=previewed.has(page)?($('showMask').checked?'SELECTION OVERLAY':'PREVIEW READY'):'NOT PROCESSED';
+ $('after').src=previewed.has(page)&&$('showChanges')?.checked?`/api/changes/${job.id}/${page}?v=${revision}`:imageURL(previewed.has(page)?($('showMask').checked?'mask':'after'):'before');
+ $('previewState').textContent=previewed.has(page)?($('showChanges')?.checked?'CHANGED PIXELS':$('showMask').checked?'SELECTION OVERLAY':'PREVIEW READY'):'NOT PROCESSED';
  $('originalPaper').style.setProperty('--natural-width',$('before').naturalWidth+'px');
  $('after').parentElement.style.setProperty('--natural-width',$('before').naturalWidth+'px');
  draw(); updatePageResult(); renderPageList(); if(typeof syncRepair==='function')syncRepair();
@@ -108,7 +108,7 @@ $('showMask').onchange=loadPage;$('zoom').onclick=()=>{const on=$('previewGrid')
 $('file').onchange=()=>upload($('file').files[0]);
 for(const event of ['dragover','dragenter'])$('dropzone').addEventListener(event,e=>{e.preventDefault();$('dropzone').classList.add('drag');});
 $('dropzone').addEventListener('dragleave',()=>$('dropzone').classList.remove('drag'));
-$('dropzone').addEventListener('drop',e=>{e.preventDefault();$('dropzone').classList.remove('drag');upload(e.dataTransfer.files[0]);});
+$('dropzone').addEventListener('drop',e=>{e.preventDefault();$('dropzone').classList.remove('drag');uploadFiles(e.dataTransfer.files);});
 async function restoreSession(){
  try{
   const saved=await api('/api/session');if(!saved)return;job=saved;if(!job.options)$('method').value=job.overlays?.some(r=>r.overlays)?'overlay':'preset';
@@ -122,7 +122,7 @@ async function restoreSession(){
   if(['processing','exporting','learning','restoring','review','done'].includes(job.state)){$('progressBox').hidden=false;setBusy(true);poll();}else{setBusy(false);await loadPage();}
  }catch(error){notice(error.message,true);}
 }
-restoreSession();
+// workspace.js restores the complete multi-file workspace after all controls load.
 $('useReviewed').onchange=invalidate;
 $('importReviewed').onclick=()=>$('reviewedFile').click();
 $('reviewedFile').onchange=async()=>{
