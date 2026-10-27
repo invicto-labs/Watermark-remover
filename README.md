@@ -1,6 +1,17 @@
-# ClearPage 2.0
+# ClearPage 2.1
 
 A local Windows application for watermark cleanup in PDFs and scanned images.
+
+## New in 2.1
+
+The supplied A-PDF watermark styles are now detected automatically on upload:
+repeated pink `www.apdf.com` text and the large blue diagonal `Sample` mark.
+The app selects **PDF text / website watermark**, previews the removed PDF
+objects, and exports selected pages using the same object-removal path. Body
+text, fonts and images remain native PDF content; no OCR or repainting is used.
+The detector checks the complete isolated drawing block, standard font mapping,
+color, transparency, rotation and text. Other styles or ambiguous blocks remain
+unchanged. This does not add generic removal of all diagonal or repeated text.
 
 ## New in 2.0
 
@@ -85,14 +96,14 @@ and preservation; they do not claim word accuracy or an overall percentage.
 
 ## Employees: start here
 
-1. Extract **the entire ClearPage-2.0-Windows-x64.zip** to a new folder on your computer.
+1. Extract **the entire ClearPage-2.1-Windows-x64.zip** to a new folder on your computer.
 2. Open the ClearPage folder and double-click **ClearPage.exe**. Keep the `_internal` folder beside the application.
 3. The app opens in your default browser. Processing happens on your computer; an internet connection and Python installation are not required.
 4. Click **Choose a PDF or scan**, or drag a supported file onto the upload box. Recognized website overlays use the same automatic selection as before. Other PDF types can be selected under **More options**.
 5. Click **Try this page** for a preview, or **Clean all pages** to process the document. Compare **Before** and **After**. Use the page arrows and **Zoom in** to inspect the text.
 6. Keep **Use this cleaned page** checked for pages you accept. Uncheck it to keep the original page. AI and uncertain results still keep the original by default. **Choose which pages to clean** provides the complete page list.
 7. Click **Create PDF**, then **Download PDF**. All pages are included in their original order and with their original dimensions.
-8. Click **Close app** when finished. Closing the browser tab alone does not stop the application.
+8. Click **Save & close** when finished. Closing the browser tab alone does not stop the application.
 
 ### Simplified interface update (27 October 2026)
 

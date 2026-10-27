@@ -85,7 +85,7 @@ employee updates are separate features.
    in `static/index.html`, the download name in `app.py`, the README heading,
    and release notes together. Run `python scripts/release.py check`.
 2. In the repository's **Releases**, choose **Draft a new release**. Select the
-   exact tested commit and a new version tag matching the code, currently `v2.0`.
+   exact tested commit and a new version tag matching the code, currently `v2.1`.
    Do not move an existing release tag.
 3. Describe the changes and publish. Under **Actions → Windows release**, watch
    the build. The Windows ZIP, SHA-256 and build report are attached only after

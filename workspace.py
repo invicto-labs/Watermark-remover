@@ -15,7 +15,7 @@ from flask import g, jsonify, request, send_file
 import saved_work
 
 ACTIVE = ('processing', 'exporting', 'learning', 'restoring')
-VERSION = '2.0'
+VERSION = '2.1'
 RELEASES = 'https://github.com/invicto-labs/Watermark-remover/releases'
 
 
@@ -32,7 +32,9 @@ def latest_release():
         match = re.fullmatch(r'v?(\d+)\.(\d+)(?:\.(\d+))?', tag)
         if not match or release.get('draft') or release.get('prerelease'):
             return {'message': 'No newer stable version is available.', 'url': RELEASES}
-        newer = tuple(int(v or 0) for v in match.groups()) > (2, 0, 0)
+        current = tuple(int(v) for v in VERSION.split('.'))
+        current = (current + (0, 0, 0))[:3]
+        newer = tuple(int(v or 0) for v in match.groups()) > current
         ready = any(a.get('name') == f'ClearPage-{tag.lstrip("v")}-Windows-x64.zip' and a.get('state') == 'uploaded'
                     for a in release.get('assets', []))
         message = 'You have the latest available stable version.'

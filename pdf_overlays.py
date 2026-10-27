@@ -6,6 +6,7 @@ cannot be changed by a selected page.
 """
 import hashlib
 import json
+import math
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ContentStream, DictionaryObject, NameObject, DecodedStreamObject
@@ -78,14 +79,91 @@ def cook_ranges(ops, resources):
     return ranges
 
 
+def apdf_ranges(ops, resources):
+    """Recognize the two verified A-PDF text layouts, not arbitrary diagonal text.
+
+    Require an isolated, balanced block, standard Helvetica mapping, the A-PDF
+    resource names, and its complete drawing grammar. Extra text, paths, custom
+    encodings or graphics-state effects make the entire block ineligible.
+    """
+    resources = resolved(resources)
+    fonts = resolved(resources.get('/Font', {}))
+    states = resolved(resources.get('/ExtGState', {}))
+    def close(values, expected):
+        return len(values) == len(expected) and all(
+            math.isfinite(float(a)) and abs(float(a)-b) < 0.00001
+            for a, b in zip(values, expected))
+    def identify(block):
+        prefix = [b'q', b'gs', b'cm', b'Tr', b'Tf', b'rg', b'Tz', b'Ts', b'Tw', b'Tc']
+        if [o for _, o in block[:10]] != prefix or block[-1] != ([], b'Q'):
+            return None
+        gs = block[1][0]; font = block[4][0]
+        if len(gs) != 1 or len(font) != 2:
+            return None
+        if not str(gs[0]).startswith('/QQAPGS') or not str(font[0]).startswith('/QQAPF'):
+            return None
+        if resolved(fonts.get(font[0], {})) != {
+                '/Type': '/Font', '/Subtype': '/Type1', '/BaseFont': '/Helvetica', '/Encoding': '/WinAnsiEncoding'}:
+            return None
+        state = resolved(states.get(gs[0], {}))
+        if set(state) != {'/Type', '/SMask', '/ca', '/CA'} or state['/Type'] != '/ExtGState' or state['/SMask'] != '/None':
+            return None
+        for index, expected in [(3, [0]), (6, [100]), (7, [0]), (8, [0]), (9, [0])]:
+            if not close(block[index][0], expected):
+                return None
+        # Only these confirmed styles/texts are automatically removed.
+        for text, size, color, alpha, angle, label in [
+                ('www.apdf.com', 30, [.8196, .4941, .6235], .44, 21, 'A-PDF tiled text'),
+                ('Sample', 103.1638, [0, 0, 1], .51, 45, 'A-PDF rotated Sample')]:
+            if not (close([font[1]], [size]) and close(block[5][0], color)
+                    and close([state['/ca'], state['/CA']], [alpha, alpha])):
+                continue
+            cosine, sine = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+            cursor = 10; matrix = block[2][0]; count = 0
+            while cursor < len(block)-1:
+                segment = block[cursor:cursor+6]
+                if [o for _, o in segment] != [b'BT', b'Tm', b'Tj', b'ET', b'cm', b'cm']:
+                    return None
+                if (len(matrix) != 6 or not close(matrix[:4], [cosine, sine, -sine, cosine])
+                        or not close(segment[1][0], [1, 0, 0, 1, 0, 0])
+                        or segment[2][0] != [text]
+                        or not close(segment[4][0], [cosine, -sine, sine, cosine, 0, 0])
+                        or not close(segment[5][0], [1, 0, 0, 1, -float(matrix[4]), -float(matrix[5])])):
+                    return None
+                count += 1; cursor += 6
+                if cursor < len(block)-1:
+                    if block[cursor][1] != b'cm': return None
+                    matrix = block[cursor][0]; cursor += 1
+            if cursor == len(block)-1 and ((text == 'Sample' and count == 1) or (text == 'www.apdf.com' and count >= 2)):
+                return label
+        return None
+    ranges = []; level = 0; start = 0
+    for i, (_, op) in enumerate(ops):
+        if op == b'q':
+            if level == 0: start = i
+            level += 1
+        elif op == b'Q':
+            level -= 1
+            if level < 0: return []
+            if level == 0:
+                try:
+                    label = identify(ops[start:i+1])
+                except (TypeError, ValueError, KeyError, IndexError, OverflowError):
+                    label = None
+                if label: ranges.append((start, i+1, label))
+    return [] if level else ranges
+
+
 def rewrite_node(node, resources, owner, writer=None, depth=0, ancestors=()):
     if depth > 16 or id(node) in ancestors:
         return None, resources, []
     resources = resolved(resources)
     ops = ContentStream(node, owner).operations
-    ranges = cook_ranges(ops, resources)
+    cook = cook_ranges(ops, resources)
+    apdf = apdf_ranges(ops, resources)
+    ranges = cook + apdf
     remove = {i for start, end, _ in ranges for i in range(start, end)}
-    labels = ['Cook County'] * len(ranges)
+    labels = ['Cook County'] * len(cook) + [label for _, _, label in apdf]
     updated = []; removed_names = set()
     new_resources = DictionaryObject(dict(resources))
     xobjects = resolved(resources.get('/XObject', {}))

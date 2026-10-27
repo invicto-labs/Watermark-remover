@@ -762,7 +762,7 @@ def download(identifier):
     if job['state'] != 'done':
         raise ValueError('The PDF is not ready yet.')
     return send_file(job['dir']/'cleaned.pdf', as_attachment=True,
-                     download_name=Path(job['name']).stem+'_ClearPage-2.0.pdf', mimetype='application/pdf')
+                     download_name=Path(job['name']).stem+'_ClearPage-2.1.pdf', mimetype='application/pdf')
 
 
 @app.post('/api/compare/<identifier>/<int:index>')
