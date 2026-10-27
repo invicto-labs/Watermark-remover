@@ -66,7 +66,7 @@ jobs:
       - name: Explain the result
         run: |
           'Windows package passed regression tests and extracted-package checks.' >> $env:GITHUB_STEP_SUMMARY
-          'Download ClearPage-Windows-verified under this run’s Artifacts. Manual runs do not publish releases.' >> $env:GITHUB_STEP_SUMMARY
+          'Download ClearPage-Windows-verified from Artifacts on this run. Manual runs do not publish releases.' >> $env:GITHUB_STEP_SUMMARY
 
   attach:
     name: Attach verified files to the published release
