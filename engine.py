@@ -140,8 +140,10 @@ def clean(image, mask, mode='careful'):
         lines = ((support > .075) | (near > .065)) & bounds
         protected = cv2.dilate(lines.astype('uint8'), np.ones((5, 5), 'uint8')) > 0
         # Preserve complete dark strokes that extend outside the selection.
-        _, labels = cv2.connectedComponents((gray < 190).astype('uint8'), connectivity=8)
-        touching = np.unique(labels[(~mask) & (gray < 190)])
+        # Include faint connected letter strokes, not only dark print. Entirely
+        # covered letters still cannot be identified from these pixels alone.
+        _, labels = cv2.connectedComponents((gray < 225).astype('uint8'), connectivity=8)
+        touching = np.unique(labels[(~mask) & (gray < 225)])
         touching = touching[touching != 0]
         connected = np.isin(labels, touching)
         protected |= cv2.dilate(connected.astype('uint8'), np.ones((3, 3), 'uint8')) > 0
@@ -157,8 +159,14 @@ def clean(image, mask, mode='careful'):
         result[~selected] = source[~selected]
     else:
         result = source.copy()
+    overlap=mask & protected
+    count,labels,boxes,_=cv2.connectedComponentsWithStats(overlap.astype('uint8'),8)
+    regions=[]
+    h,w=mask.shape
+    for x,y,bw,bh,area in boxes[1:]:
+        if area>=12:regions.append([round(x/w,5),round(y/h,5),round((x+bw)/w,5),round((y+bh)/h,5)])
     return result, {'changed': int(np.any(result != source, axis=2).sum()),
-                    'protected': int((mask & protected).sum())}
+                    'protected': int(overlap.sum()), 'scan_overlap_regions': regions[:40]}
 
 
 def page_fingerprint(image):

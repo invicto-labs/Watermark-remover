@@ -29,21 +29,44 @@ def run(manifest):
         rows=[r for r in reports if r['category']==category]
         metrics={}
         for key in ('correction_error_before','correction_error_after','preserved_reference_matching_pixels_percent',
-                    'dark_pixel_recall_percent','dark_pixel_precision_percent','mean_rgb_error'):
+                    'dark_pixel_recall_percent','dark_pixel_precision_percent','mean_rgb_error',
+                    'corrected_watermark_pixels_percent','faint_ink_pixel_match_percent'):
             values=[r[key] for r in rows if r[key] is not None]
             metrics[key]=dict(mean_per_page=round(mean(values),3) if values else None,measured_pages=len(values))
         categories[category]=dict(pages=len(rows),metrics=metrics)
     return dict(schema_version=1,note='Pixel metrics, not word accuracy. Category means weight each measured page equally. Inspect alignment and verify reference wording before interpreting results.',categories=categories,pages=reports)
 
 
+def regressions(report,baseline,tolerance=0.1):
+    """Compare the same cases and pages; missing coverage is a failure."""
+    if not 0<=tolerance<=100:raise ValueError('Tolerance must be between 0 and 100.')
+    key=lambda row:(row['case'],row['category'],row['page'])
+    rows={key(row):row for row in report['pages']};failures=[]
+    for old in baseline['pages']:
+        name=key(old);new=rows.get(name)
+        if new is None:failures.append(f'Missing benchmark page: {name}');continue
+        for metric,direction in [('mean_rgb_error',1),('correction_error_after',1),
+                ('preserved_reference_matching_pixels_percent',-1),('corrected_watermark_pixels_percent',-1),
+                ('faint_ink_pixel_match_percent',-1)]:
+            before=old.get(metric);after=new.get(metric)
+            if before is not None and (after is None or direction*(after-before)>tolerance):
+                failures.append(f'{name}: {metric} regressed from {before} to {after}')
+    return failures
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('manifest',type=Path)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--baseline',type=Path)
+    parser.add_argument('--tolerance',type=float,default=0.1)
     args=parser.parse_args()
     if args.output.suffix.lower()!='.json' or args.output.resolve()==args.manifest.resolve():
         parser.error('Choose a separate .json output file.')
     report=run(args.manifest)
+    if args.baseline:
+        report['regressions']=regressions(report,json.loads(args.baseline.read_text(encoding='utf-8')),args.tolerance)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,indent=2),encoding='utf-8')
     print(f'Measured {len(report["pages"])} pages in {len(report["categories"])} categories. Report: {args.output}')
+    if report.get('regressions'):raise SystemExit(1)

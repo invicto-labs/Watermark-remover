@@ -139,14 +139,24 @@ def verify(value):
                            f'{os.environ["GITHUB_RUN_ID"]}' if os.environ.get('GITHUB_RUN_ID') else None),
                   package=archive.name, sha256=digest(archive), checks=result,
                   limitation='Synthetic build checks do not measure accuracy on company documents.')
+    benchmark_path=ROOT/'build/benchmark/benchmark-report.json'
+    if not benchmark_path.is_file():
+        raise ValueError('Run scripts/benchmark_suite.py --output-dir build/benchmark before verification.')
+    benchmark_report=json.loads(benchmark_path.read_text(encoding='utf-8'))
+    if benchmark_report.get('gate_failures') != []:
+        raise ValueError('Benchmark gates did not pass.')
+    report['benchmark']={'pages':len(benchmark_report['pages']), 'categories':len(benchmark_report['categories']), 'passed':True}
+    report['publisher_signature']='unsigned - signing deferred'
     # Nothing becomes publishable until the extracted executable passes every check.
     assets = ROOT/'release-assets'
     assets.mkdir(exist_ok=False)
     shutil.copy2(archive, assets/archive.name)
     report_path = assets/f'ClearPage-{value}-build-report.json'
     report_path.write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
+    benchmark_target=assets/f'ClearPage-{value}-benchmark-report.json'
+    shutil.copy2(benchmark_path,benchmark_target)
     (assets/f'ClearPage-{value}-SHA256.txt').write_text(
-        f'{report["sha256"]}  {archive.name}\n{digest(report_path)}  {report_path.name}\n', encoding='utf-8')
+        f'{report["sha256"]}  {archive.name}\n{digest(report_path)}  {report_path.name}\n{digest(benchmark_target)}  {benchmark_target.name}\n', encoding='utf-8')
     print('Verified Windows ZIP, build report and checksums:', assets)
 
 

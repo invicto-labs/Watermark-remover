@@ -30,6 +30,7 @@ import pdf_overlays
 import page_polarity
 import quality_check
 import scan_input
+import pdf_selection
 
 BASE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 TOKEN = secrets.token_urlsafe(32)
@@ -166,7 +167,7 @@ def home():
 
 @app.get('/static/<name>')
 def static(name):
-    if name not in ('app.js', 'style.css', 'repair.js', 'workspace.js'):
+    if name not in ('app.js', 'style.css', 'repair.js', 'workspace.js', 'objects.js'):
         return '', 404
     return send_file(BASE/'static'/name)
 
@@ -250,8 +251,8 @@ def settings(data):
     if method == 'polarity':
         return dict(method='polarity', mode='careful', strokes=[], use_reviewed=False,
                     auto_restore=False, scan_inversion=False, polarity_pages=sorted(set(pages)))
-    if method == 'overlay':
-        return dict(method='overlay', mode='careful', strokes=[], use_reviewed=False,
+    if method in ('overlay', 'object'):
+        return dict(method=method, mode='careful', strokes=[], use_reviewed=False,
                     auto_restore=False, scan_inversion=False, **color)
     mode = data.get('mode', 'careful')
     if method not in ('preset', 'manual') or mode not in ('careful', 'light', 'strong', 'lama'):
@@ -303,7 +304,7 @@ def cleanup_page(job, index, options):
     preview[mask] = (preview[mask]*.45 + np.array([240, 85, 45])*.55).astype('uint8')
     Image.fromarray(preview).save(job['dir']/f'{index}-mask.png')
     return dict(page=index, confidence=round(confidence, 3) if confidence is not None else None,
-                matched=bool(mask.any()), reviewed=False, uncertain=(options['mode']=='lama' and bool(mask.any())) or (confidence is not None and .18 <= confidence < .35), **stats)
+                matched=bool(mask.any()), reviewed=False, uncertain=(options['mode']=='lama' and bool(mask.any())) or (confidence is not None and .18 <= confidence < .35) or bool(stats.get('scan_overlap_regions')), **stats)
 
 
 def process_page(job, index, options):
@@ -316,11 +317,17 @@ def process_page(job, index, options):
         return dict(page=index, confidence=None, matched=details['applied'],
                     changed=int(np.any(pixels != np.asarray(source), axis=2).sum()),
                     protected=0, reviewed=False, uncertain=details['applied'], polarity=details)
-    if options['method'] == 'overlay':
+    if options['method'] in ('overlay', 'object'):
         before = np.array(Image.open(original(job, index)).convert('RGB'))
-        target = job['dir']/'overlay-preview.pdf'
+        selected = options['method'] == 'object'
+        if selected and not job.get('object_selection'):
+            raise ValueError('Find text objects and choose a watermark first.')
+        target = job['dir']/('selected-preview.pdf' if selected else 'overlay-preview.pdf')
         if not target.exists():
-            pdf_overlays.write_clean(job['source'], target, range(job['count']), lambda: job['cancel'])
+            if selected:
+                pdf_selection.write_selected(job['source'], target, range(job['count']), job['object_selection'], lambda:job['cancel'])
+            else:
+                pdf_overlays.write_clean(job['source'], target, range(job['count']), lambda: job['cancel'])
         image = render_page(target, index)
         image.save(job['dir']/f'{index}-structural.png')
         color = None
@@ -331,9 +338,10 @@ def process_page(job, index, options):
         changed = np.any(np.array(image) != before, axis=2)
         before[changed] = (before[changed]*.45 + np.array([240,85,45])*.55).astype('uint8')
         Image.fromarray(before).save(job['dir']/f'{index}-mask.png')
-        info = job['overlays'][index]
+        info = (dict(overlays=len(job['object_selection'].get(str(index),[])), providers=['Selected text object'])
+                if selected else job['overlays'][index])
         return dict(page=index, confidence=None, matched=bool(info['overlays']) or bool(color and color['applied']), changed=int(changed.sum()),
-                    protected=0, reviewed=False, uncertain=bool(color and color['applied']), structural=True, color_correction=color, **info)
+                    protected=0, reviewed=False, uncertain=bool(color and color['applied']) or (selected and bool(changed.any())), structural=True, color_correction=color, **info)
     result = cleanup_page(job, index, options)
     if options.get('fix_negative'):
         color = job['color_cache'][(index, index in options.get('polarity_pages', []))][1]
@@ -369,7 +377,7 @@ def process_page(job, index, options):
 
 def repair_job(identifier, data):
     job = job_for(identifier)
-    if (job.get('options') or {}).get('method') in ('overlay', 'polarity'):
+    if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity'):
         raise ValueError('Switch to image cleanup to repair words; overlay removal and black-page correction do not apply word repairs.')
     if job['state'] not in ('review', 'done'):
         raise ValueError('Process all pages first, then repair words in the cleaned preview.')
@@ -485,7 +493,7 @@ def restoration_worker(job,clear=False):
 def restore_all_words(identifier):
     with LOCK:
         job=job_for(identifier)
-        if (job.get('options') or {}).get('method') in ('overlay', 'polarity'):
+        if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity'):
             raise ValueError('Word restoration is disabled for overlay removal and black-page correction.')
         if job['state'] not in ('review','done'):
             raise ValueError('Process all pages before restoring words.')
@@ -725,10 +733,13 @@ def cancel(identifier):
 def export_worker(job, keep):
     try:
         with LOCK:
-            if job['options']['method'] == 'overlay':
+            if job['options']['method'] in ('overlay', 'object'):
                 corrected = [i for i in keep if (job['results'][i].get('color_correction') or {}).get('applied')]
                 target = job['dir']/('overlay-export.pdf' if corrected else 'cleaned.pdf')
-                pdf_overlays.write_clean(job['source'], target, keep, lambda: job['cancel'])
+                if job['options']['method']=='object':
+                    pdf_selection.write_selected(job['source'],target,keep,job.get('object_selection',{}),lambda:job['cancel'])
+                else:
+                    pdf_overlays.write_clean(job['source'], target, keep, lambda: job['cancel'])
                 if corrected:
                     edits = {i:(job['dir']/f'{i}-structural.png',image_path(job,i,True)) for i in corrected}
                     write_pdf(target,job['dir']/'cleaned.pdf',edits,lambda:job['cancel'])
@@ -762,7 +773,7 @@ def download(identifier):
     if job['state'] != 'done':
         raise ValueError('The PDF is not ready yet.')
     return send_file(job['dir']/'cleaned.pdf', as_attachment=True,
-                     download_name=Path(job['name']).stem+'_ClearPage-2.1.pdf', mimetype='application/pdf')
+                     download_name=Path(job['name']).stem+'_ClearPage-2.2.pdf', mimetype='application/pdf')
 
 
 @app.post('/api/compare/<identifier>/<int:index>')
@@ -918,6 +929,8 @@ def main():
 
 import workspace
 workspace.register(sys.modules[__name__])
+import object_routes
+object_routes.register(sys.modules[__name__])
 
 
 if __name__ == '__main__':

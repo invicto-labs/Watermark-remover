@@ -20,10 +20,14 @@ def compare(source, result, reference):
     before_error = np.abs(a.astype(np.int16) - r.astype(np.int16))
     after_error = np.abs(b.astype(np.int16) - r.astype(np.int16))
     needs_change = np.max(before_error, axis=2) > 8
-    unchanged = ~needs_change
+    # Preservation measures pixels that already equal the reference exactly.
+    # Tiny antialiased watermark differences (1..8) are not pristine pixels.
+    unchanged = np.max(before_error, axis=2) == 0
     changed = np.any(a != b, axis=2)
     reference_ink = np.mean(r, axis=2) < 128
     result_ink = np.mean(b, axis=2) < 128
+    faint_ink = (np.mean(r, axis=2)>=128) & (np.mean(r, axis=2)<225)
+    matches = np.max(after_error,axis=2)<=8
     overlap = int(np.sum(reference_ink & result_ink))
     def percent(n, d):
         return round(100*n/d, 2) if d else None
@@ -32,6 +36,9 @@ def compare(source, result, reference):
     return dict(
         pixels=int(needs_change.size),
         pixels_needing_correction=int(needs_change.sum()),
+        corrected_watermark_pixels_percent=percent(np.sum(needs_change & matches),np.sum(needs_change)),
+        faint_ink_pixel_match_percent=percent(np.sum(faint_ink & matches),np.sum(faint_ink)),
+        unexpected_changed_pixels=int(np.sum(unchanged & changed)),
         correction_error_before=error(before_error, needs_change),
         correction_error_after=error(after_error, needs_change),
         preserved_reference_matching_pixels_percent=percent(np.sum(unchanged & ~changed), np.sum(unchanged)),

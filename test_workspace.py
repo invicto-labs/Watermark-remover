@@ -159,9 +159,9 @@ class WorkspaceTests(unittest.TestCase):
         self.assertFalse(np.array_equal(image[10:20,10:20],after[10:20,10:20]))
 
     def test_update_checker_waits_for_windows_asset_and_ignores_external_links(self):
-        payload={'tag_name':'v2.2','html_url':'https://untrusted.example','assets':[]}
+        payload={'tag_name':'v2.3','html_url':'https://untrusted.example','assets':[]}
         for ready in (False,True):
-            if ready:payload['assets']=[{'name':'ClearPage-2.2-Windows-x64.zip','state':'uploaded'}]
+            if ready:payload['assets']=[{'name':'ClearPage-2.3-Windows-x64.zip','state':'uploaded'}]
             with patch('urllib.request.urlopen',return_value=BytesIO(json.dumps(payload).encode())) as call:
                 response=workspace.latest_release()
                 self.assertEqual(response['available'],ready);self.assertEqual(response['url'],workspace.RELEASES)

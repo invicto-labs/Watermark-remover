@@ -77,7 +77,6 @@ class APDFTests(unittest.TestCase):
         def opaque(mark,font,state):
             state[NameObject('/ca')]=FloatObject(1);return mark
         mutations=[lambda m,f,s:m.replace(b'(Sample)',b'(Other words)'),
-                   lambda m,f,s:m.replace(b'0 0 1 rg',b'0 0 0 rg'),
                    lambda m,f,s:m.replace(b'(Sample) Tj',b'(Sample) Tj (Important body text) Tj'),
                    lambda m,f,s:m.replace(b'0 Tr',b'7 Tr'),
                    lambda m,f,s:m[:-1],custom_font,opaque]

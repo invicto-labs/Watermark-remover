@@ -14,7 +14,7 @@ from PIL import Image
 MAX_BYTES = 2 * 1024**3
 FIELDS = ('id', 'name', 'count', 'size', 'options', 'state', 'progress', 'message',
           'results', 'overlays', 'input_type', 'input_note', 'ui', 'repairs',
-          'automatic', 'auto_background', 'overlaps', 'repair_color_settings', 'export_keep', 'inversion_model')
+          'automatic', 'auto_background', 'overlaps', 'repair_color_settings', 'export_keep', 'inversion_model', 'object_selection')
 
 
 def identifier(value):

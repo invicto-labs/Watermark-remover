@@ -102,8 +102,13 @@ def apdf_ranges(ops, resources):
             return None
         if not str(gs[0]).startswith('/QQAPGS') or not str(font[0]).startswith('/QQAPF'):
             return None
-        if resolved(fonts.get(font[0], {})) != {
-                '/Type': '/Font', '/Subtype': '/Type1', '/BaseFont': '/Helvetica', '/Encoding': '/WinAnsiEncoding'}:
+        font_object=resolved(fonts.get(font[0], {}))
+        families={'/Helvetica','/Helvetica-Bold','/Helvetica-Oblique','/Helvetica-BoldOblique',
+                  '/Times-Roman','/Times-Bold','/Times-Italic','/Times-BoldItalic',
+                  '/Courier','/Courier-Bold','/Courier-Oblique','/Courier-BoldOblique'}
+        if (set(font_object)!={'/Type','/Subtype','/BaseFont','/Encoding'} or
+                font_object.get('/BaseFont') not in families or font_object.get('/Type')!='/Font' or
+                font_object.get('/Subtype')!='/Type1' or font_object.get('/Encoding')!='/WinAnsiEncoding'):
             return None
         state = resolved(states.get(gs[0], {}))
         if set(state) != {'/Type', '/SMask', '/ca', '/CA'} or state['/Type'] != '/ExtGState' or state['/SMask'] != '/None':
@@ -111,10 +116,19 @@ def apdf_ranges(ops, resources):
         for index, expected in [(3, [0]), (6, [100]), (7, [0]), (8, [0]), (9, [0])]:
             if not close(block[index][0], expected):
                 return None
-        # Only these confirmed styles/texts are automatically removed.
-        for text, size, color, alpha, angle, label in [
+        profiles=[
                 ('www.apdf.com', 30, [.8196, .4941, .6235], .44, 21, 'A-PDF tiled text'),
-                ('Sample', 103.1638, [0, 0, 1], .51, 45, 'A-PDF rotated Sample')]:
+                ('Sample', 103.1638, [0, 0, 1], .51, 45, 'A-PDF rotated Sample')]
+        texts=[str(a[0]) for a,o in block if o==b'Tj']
+        matrix=block[2][0];color=block[5][0];alpha=float(state['/ca'])
+        if (texts and len(set(texts))==1 and 1<=len(texts[0])<=100 and
+                (len(texts)>=2 or texts[0].strip().upper() in {'SAMPLE','DRAFT','COPY','CONFIDENTIAL'}) and
+                18<=float(font[1])<=240 and len(color)==3 and all(0<=float(c)<=1 for c in color) and
+                .05<=alpha<=.85 and len(matrix)==6):
+            angle=math.degrees(math.atan2(float(matrix[1]),float(matrix[0])))
+            if 5<=abs(angle)<=85:
+                profiles.append((texts[0],float(font[1]),[float(c) for c in color],alpha,angle,'A-PDF text variant'))
+        for text, size, color, alpha, angle, label in profiles:
             if not (close([font[1]], [size]) and close(block[5][0], color)
                     and close([state['/ca'], state['/CA']], [alpha, alpha])):
                 continue
@@ -134,7 +148,7 @@ def apdf_ranges(ops, resources):
                 if cursor < len(block)-1:
                     if block[cursor][1] != b'cm': return None
                     matrix = block[cursor][0]; cursor += 1
-            if cursor == len(block)-1 and ((text == 'Sample' and count == 1) or (text == 'www.apdf.com' and count >= 2)):
+            if cursor == len(block)-1 and (count>=2 or (count==1 and text.strip().upper() in {'SAMPLE','DRAFT','COPY','CONFIDENTIAL'})):
                 return label
         return None
     ranges = []; level = 0; start = 0

@@ -85,7 +85,7 @@ employee updates are separate features.
    in `static/index.html`, the download name in `app.py`, the README heading,
    and release notes together. Run `python scripts/release.py check`.
 2. In the repository's **Releases**, choose **Draft a new release**. Select the
-   exact tested commit and a new version tag matching the code, currently `v2.1`.
+   exact tested commit and a new version tag matching the code, currently `v2.2`.
    Do not move an existing release tag.
 3. Describe the changes and publish. Under **Actions → Windows release**, watch
    the build. The Windows ZIP, SHA-256 and build report are attached only after
@@ -120,3 +120,9 @@ and [GitHub CLI immutable releases](https://cli.github.com/manual/gh_release_cre
 
 Employees download and extract the complete Windows ZIP, then open ClearPage.exe.
 The app currently has no automatic updater; installing a new release is manual.
+
+
+For 2.2, run `python scripts/benchmark_suite.py --output-dir build/benchmark`
+before `python scripts/release.py verify`. The verifier refuses missing or failed
+benchmark gates. Signing is deferred; build reports explicitly label packages
+unsigned. The ZIP and JSON reports are covered by the SHA256 file.

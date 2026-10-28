@@ -15,7 +15,7 @@ async function api(path, body, raw=false) {
 function setBusy(value) { busy=value; for(const id of ['method','mode','preview','process','reset','erase','undo','clearBrush','brushSize','export','allOriginal','allCleaned','previous','next','pageNumber','useReviewed','importReviewed','autoRestore','scanInversion','restoreNow','clearAutomatic','forcePolarity','fixNegative']) $(id).disabled=value; if(!value&&job){$('previous').disabled=page===0;$('next').disabled=page===job.count-1;} $('brushCanvas').style.pointerEvents=value?'none':($('method').value==='manual'?'auto':'none'); syncOverlayControls(); syncSimpleView(); if(typeof syncRepair==='function')syncRepair(); }
 function syncOverlayControls() {
  const polarity=$('method').value==='polarity';
- const overlay=$('method').value==='overlay'||polarity;
+ const overlay=['overlay','object'].includes($('method').value)||polarity;
  $('fixNegative').disabled=busy||polarity;
  $('polarityTools').hidden=!(polarity||$('fixNegative').checked);
  $('showMask').disabled=busy||polarity;if(polarity)$('showMask').checked=false;
@@ -145,7 +145,7 @@ function syncSimpleView() {
  $('pageChoices').hidden=!reviewed;
  if(!busy&&(job?.state==='done'||(job?.state==='review'&&job.message==='Review the results, then save your complete PDF.')))$('progressBox').hidden=true;
  const method=$('method').value;
- $('simpleMethod').textContent=method==='polarity'?'Checks for white text on black paper. Review the proposed inversion before saving.':method==='overlay'?'PDF-object cleanup selected. Recognized watermarks are removed while preserving original text and images.':method==='manual'?'Paint the watermark on the Before page, then try the cleanup.':'Huntington cleanup selected. For a different PDF type, use More options.';
+ $('simpleMethod').textContent=method==='polarity'?'Checks for white text on black paper. Review the proposed inversion before saving.':['overlay','object'].includes(method)?'PDF-object cleanup selected. Recognized watermarks are removed while preserving original text and images.':method==='manual'?'Paint the watermark on the Before page, then try the cleanup.':'Huntington cleanup selected. For a different PDF type, use More options.';
  $('selectionSummary').textContent=job?`${keep.size} of ${job.count} pages selected`:'';
  $('saveTitle').textContent=!$('download').hidden?'Your PDF is ready':'Check the pages, then save';
  $('saveHelp').textContent=!$('download').hidden?'Download the new copy to your computer.':job?`All ${job.count} pages will be included. Only checked pages use the cleaned version.`:'All pages will be included.';
@@ -164,7 +164,7 @@ function showResult(result) {
  if(result){
   if(result.color_correction?.applied){message='Colors corrected and cleanup ready. Check the text, then select this page to save the corrected version.';warning=true;}
   else if(result.polarity){message=result.polarity.note;warning=result.changed>0;}
-  else if(result.structural)message=result.matched?'Watermark removed. The original scan is unchanged.':'No supported watermark found. This page is unchanged.';
+  else if(result.structural)message=result.matched?'Watermark objects removed. Original text and images retained.':'No supported watermark found. This page is unchanged.';
   else if(result.uncertain){message=keep.has(page)?'You selected this cleaned page. Check the altered text carefully before saving.':'Check the text carefully. The original will be kept unless you select this cleaned page.';warning=true;}
   else if(!result.matched)message=result.repairs?'Word repairs applied. Check the wording before saving.':'No watermark match found. This page is unchanged.';
   else message='Cleanup ready. Check the words and numbers in the After page.';
@@ -182,6 +182,7 @@ function updateOptionExamples() {
  const method=$('method').value;
  const types={
   polarity:'Use when the whole scanned page has white text on a black background. The app looks for dark paper with small light marks. It reverses the existing colors without retyping words. Dark photos, mixed layouts and uncertain pages may need the per-page override. All proposed inversions need your review.',
+  object:'First open Select a text watermark and find the objects on this page. Click the watermark or choose its wording. Preview, then accept only the pages you checked.',
   overlay:'Use for the supported pink repeated “www.apdf.com” or large blue diagonal “Sample” style, and supported Cook County / OKCountyRecords PDFs. Removes the separate watermark objects while preserving original text and images. Other wording or styles stay unchanged.',
   preset:'Use for Huntington County scans with the diagonal “IMAGES/COPY PROPERTY…” mark. Example: large diagonal words crossing a scanned deed. Try Careful first and check the words beneath the mark.',
   manual:'Use for another watermark that you can paint over yourself. Example: a small mark in an empty corner. Select only the watermark on the Before page. Marks covering text are harder to remove, and the same selection is applied to every page.'
@@ -192,7 +193,7 @@ function updateOptionExamples() {
   lama:'Try when image cleanup still leaves a mark and you can check the text against a reliable copy. Example: a dark line crosses “mortgage”. AI fills in the selected area, but may change letters. Review carefully and select only pages you accept.'
  };
  $('methodHelp').textContent=types[method]||'';
- $('modeHelp').textContent=method==='polarity'?'This option reverses page colors only. Watermark cleanup and word repairs are disabled for this pass.':method==='overlay'?'No cleanup method is needed for Website PDF. The app removes the separate overlay, so these image-cleanup choices are disabled.':modes[$('mode').value]||'';
+ $('modeHelp').textContent=method==='polarity'?'This option reverses page colors only. Watermark cleanup and word repairs are disabled for this pass.':['overlay','object'].includes(method)?'No cleanup method is needed for Website PDF. The app removes the separate overlay, so these image-cleanup choices are disabled.':modes[$('mode').value]||'';
  const repairs={
   donor:'Best when the same word is clear elsewhere. Example: “mortgage” is damaged on page 4 but clear on page 2. Copy that clean occurrence, matching spelling, capital letters and font.',
   fit:'Use when some original letters survive and you have confirmed the exact word. Example: part of “mortgage” is missing, but its remaining strokes are visible. The app fits replacement letters to those strokes; check the preview.',
@@ -214,7 +215,7 @@ $('referenceFile').onchange=async()=>{
  try{
   qualityReport=await api(`/api/compare/${job.id}/${page}`,file,true);
   const r=qualityReport, val=n=>n===null?'not applicable':n+'%';
-  $('qualityResult').textContent=`Page ${r.page} · Pixel error in areas needing correction: ${r.correction_error_before??'N/A'} before → ${r.correction_error_after??'N/A'} after (0–255; lower is better). Matching original pixels preserved: ${val(r.preserved_reference_matching_pixels_percent)}. Reference dark pixels retained: ${val(r.dark_pixel_recall_percent)}. Output dark pixels matching reference: ${val(r.dark_pixel_precision_percent)}. These are pixel measurements, not word accuracy. Alignment and reference wording must be checked by you.`;
+  $('qualityResult').textContent=`Page ${r.page} · Pixel error in areas needing correction: ${r.correction_error_before??'N/A'} before → ${r.correction_error_after??'N/A'} after (0–255; lower is better). Matching original pixels preserved: ${val(r.preserved_reference_matching_pixels_percent)}. Reference dark pixels retained: ${val(r.dark_pixel_recall_percent)}. Output dark pixels matching reference: ${val(r.dark_pixel_precision_percent)}. Watermark pixels corrected: ${val(r.corrected_watermark_pixels_percent)}. Faint reference ink matched: ${val(r.faint_ink_pixel_match_percent)}. These are pixel measurements, not word accuracy. Alignment and reference wording must be checked by you.`;
   $('saveQuality').hidden=false;
  }catch(error){notice(error.message,true);}finally{setBusy(false);$('referenceFile').value='';}
 };

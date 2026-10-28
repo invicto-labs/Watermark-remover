@@ -1,6 +1,30 @@
-# ClearPage 2.1
+# ClearPage 2.2
 
 A local Windows application for watermark cleanup in PDFs and scanned images.
+
+## New in 2.2
+
+- **Select a text watermark:** find isolated text objects on the current page,
+  click the orange area or choose its wording, and optionally match the same
+  appearance on other pages. Selection replaces the previous selection. Preview
+  and process using Selected text watermark; changed pages start unchecked.
+  Export and saved workspaces preserve the selection. Clear text selection
+  removes it without changing the original. Scanned marks, mixed body-text blocks,
+  embedded/custom fonts and complex graphics are intentionally not offered.
+- **A-PDF variants:** the validated A-PDF drawing grammar now supports standard
+  Helvetica/Times/Courier styles, RGB colors, 5–85 degree rotations, font sizes
+  18–240, and opacity 0.05–0.85. Isolated SAMPLE/DRAFT/COPY/CONFIDENTIAL or repeated
+  identical text can match. This is not generic removal of diagonal body text.
+- **Faint scan text:** Careful cleanup protects connected ink through gray level
+  224. Potential text overlaps are flagged and affected results start unchecked.
+  This can leave more watermark residue; completely covered letters remain uncertain.
+- **Benchmarking:** separate corrected-watermark pixel, faint-ink match and
+  unintended-change metrics. A deterministic 11-page, 5-category synthetic suite
+  runs in CI; private benchmarks can fail on regression or missing coverage.
+  These are pixel measurements, not measured accuracy on company documents.
+- **Guided updates:** release version, package name, plain-text notes and steps
+  for saving, verifying the checksum, extracting separately and keeping a rollback.
+  Signing is deferred. The package is unsigned; checksums are not signatures.
 
 ## New in 2.1
 
@@ -96,7 +120,7 @@ and preservation; they do not claim word accuracy or an overall percentage.
 
 ## Employees: start here
 
-1. Extract **the entire ClearPage-2.1-Windows-x64.zip** to a new folder on your computer.
+1. Extract **the entire ClearPage-2.2-Windows-x64.zip** to a new folder on your computer.
 2. Open the ClearPage folder and double-click **ClearPage.exe**. Keep the `_internal` folder beside the application.
 3. The app opens in your default browser. Processing happens on your computer; an internet connection and Python installation are not required.
 4. Click **Choose a PDF or scan**, or drag a supported file onto the upload box. Recognized website overlays use the same automatic selection as before. Other PDF types can be selected under **More options**.

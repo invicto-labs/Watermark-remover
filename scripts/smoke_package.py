@@ -68,7 +68,7 @@ def check_package(bundle, version):
             base = launch.split('/?')[0]
             with client.open(launch, timeout=30) as response:
                 require(f'ClearPage {version}' in response.read().decode(), 'Wrong application version.')
-            for asset in ('app.js', 'style.css', 'repair.js', 'workspace.js'):
+            for asset in ('app.js', 'style.css', 'repair.js', 'workspace.js', 'objects.js'):
                 require(len(get('/static/'+asset)) > 100, 'Missing static asset: '+asset)
             positive = Image.new('RGB', (600, 800), 'white')
             draw = ImageDraw.Draw(positive)
@@ -118,6 +118,22 @@ def check_package(bundle, version):
                     require(np.array_equal(engine.render_page(exported, 1), positive), 'Unselected TIFF page changed.')
                 verified.append(kind)
                 post('/api/clear/'+identifier, {})
+            # Exercise selection inside the actual frozen application.
+            from test_apdf import sample
+            selected_input=root/'selected-text.pdf'
+            sample(selected_input,mutation=lambda m,f,s:m.replace(b'(Sample)',b'(PRIVATE MARK)'))
+            selected_job=post('/api/upload',selected_input.read_bytes(),'selected-text.pdf')
+            selected_id=selected_job['id']
+            candidates=post('/api/objects/'+selected_id+'/0',{})['items']
+            candidate=next(c for c in candidates if c['text']=='PRIVATE MARK')
+            post('/api/objects/'+selected_id+'/select',{'page':0,'id':candidate['id'],'all_pages':True})
+            post('/api/process/'+selected_id,{'method':'object'})
+            require(all(r['uncertain'] for r in wait_job(selected_id,'review')['results']), 'Selected-object pages were not flagged for review.')
+            post('/api/export/'+selected_id,{'keep':[0]});wait_job(selected_id,'done')
+            selection_result=root/'selected-result.pdf';selection_result.write_bytes(get('/api/download/'+selected_id))
+            require('PRIVATE MARK' not in engine.read_pdf(selection_result).pages[0].extract_text(),'Selected text remains.')
+            require(np.array_equal(engine.render_page(selected_input,1),engine.render_page(selection_result,1)),'Unselected object page changed.')
+            post('/api/clear/'+selected_id,{})
             # Verify the new multi-file workflow inside the extracted executable.
             ids=[]
             for name,data,kind in fixtures[:2]:
@@ -162,7 +178,7 @@ def check_package(bundle, version):
             process.wait(timeout=20)
             require(process.returncode == 0, 'Application did not exit cleanly.')
             return dict(models=model_checks, formats=verified, selected_export=True,
-                        unselected_pages_preserved=True, multi_file_zip=True, restart_resume=True, clean_shutdown=True)
+                        unselected_pages_preserved=True, selected_text_objects=True, multi_file_zip=True, restart_resume=True, clean_shutdown=True)
         finally:
             if process.poll() is None:
                 if base:

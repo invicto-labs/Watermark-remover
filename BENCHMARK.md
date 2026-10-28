@@ -55,8 +55,8 @@ category mean weights measured pages equally and states how many values exist.
 - **Correction error before/after:** mean absolute RGB error (0â€“255, lower is
   better) in pixels where source and reference differ by more than 8 in at least
   one channel. Improvement indicates closer visual agreement in those areas.
-- **Matching original pixels preserved:** percentage of pixels within that
-  tolerance that the result left exactly unchanged. This checks collateral edits.
+- **Matching original pixels preserved:** percentage of source pixels exactly equal to the reference
+  that the result left exactly unchanged. This checks collateral edits.
 - **Dark pixel recall:** percentage of reference dark pixels also dark in the
   result. Erasing text reduces this score.
 - **Dark pixel precision:** percentage of output dark pixels also dark in the
@@ -69,3 +69,30 @@ region. These metrics are **not word or character accuracy**, and dark-pixel
 matches do not establish correct spelling. Manually check critical names,
 numbers, signatures and text under the watermark. Negative scans change almost
 the entire page, so compare their category separately from watermark removal.
+
+
+## Release gates (2.2)
+
+Run `python scripts/benchmark_suite.py --output-dir build/benchmark` before
+packaging. It builds an independent synthetic reference corpus (11 pages across
+5 categories) and fails if native-object results differ from the known reference,
+pristine pixels change, or faint reference ink is damaged. The overlap scan may
+retain watermark residue; the report records it rather than calling it success.
+The build artifact includes this report. Synthetic samples are not a substitute
+for representative company scans and independently verified clean references.
+
+New measures: **corrected watermark pixels** counts source/reference differences
+over 8 that end within 8 of the reference; **faint ink match** measures reference
+pixels with mean RGB 128–224 that end within 8 in every channel. Unexpected changes
+count edits to pixels that matched the reference exactly before cleanup.
+
+Compare the same private cases across releases:
+
+```powershell
+python benchmark.py benchmark-local/cases.json --output benchmark-local/new.json --baseline benchmark-local/previous.json --tolerance 0.1
+```
+
+A missing baseline page or a worsened tracked metric beyond the tolerance returns
+exit code 1 after writing the report. Tolerance is in percentage points for percent
+metrics and RGB levels for errors. Do not mix references, resolutions, crops or
+rendering environments between runs. This checks pixels, not spelling or meaning.
