@@ -11,6 +11,7 @@ from pypdf import PdfReader, PdfWriter, Transformation
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.utils import ImageReader
 from pdf_overlays import read_pdf
+import dotted_scans
 
 SCALE = 2
 MAX_PAGES = 300
@@ -28,7 +29,8 @@ def inspect_pdf(path):
     sizes = []
     for page in reader.pages:
         w, h = float(page.cropbox.width), float(page.cropbox.height)
-        if not (1 <= w <= 4000 and 1 <= h <= 4000) or w*h*SCALE*SCALE > MAX_PIXELS:
+        oversized = not (1 <= w <= 4000 and 1 <= h <= 4000) or w*h*SCALE*SCALE > MAX_PIXELS
+        if oversized and not (1 <= w <= 20000 and 1 <= h <= 20000 and dotted_scans.scan_object(page)):
             raise ValueError('A page is too large. Maximum rendered page size is 12 million pixels.')
         if page.rotation % 90:
             raise ValueError('This PDF has an unsupported page rotation.')
@@ -40,7 +42,9 @@ def render_page(path, index):
     # All calls are serialized by the app; PDFium must not run concurrently.
     with pdfium.PdfDocument(str(path)) as document:
         page = document[index]
-        bitmap = page.render(scale=SCALE)
+        w, h = page.get_size()
+        scale = min(SCALE, math.sqrt((MAX_PIXELS-20000)/(w*h)))
+        bitmap = page.render(scale=scale)
         image = bitmap.to_pil().convert('RGB').copy()
         bitmap.close()
         page.close()
@@ -224,9 +228,14 @@ def write_pdf(source_path, output_path, edits, cancelled=lambda: False):
         changed = np.any(before != after, axis=2)
         if not changed.any():
             continue
-        rgba = np.zeros((*changed.shape, 4), 'uint8')
-        rgba[:, :, :3][changed] = after[changed]
-        rgba[:, :, 3][changed] = 255
+        # PDF viewers resample color and soft-mask streams independently. Black
+        # RGB beneath transparent pixels creates dark outlines at mask edges.
+        # Supply real neighboring colors and a small unchanged pixel border so
+        # interpolation cannot blend the old watermark back into the correction.
+        coverage = cv2.dilate(changed.astype('uint8'), np.ones((5, 5), 'uint8')) > 0
+        rgba = np.empty((*changed.shape, 4), 'uint8')
+        rgba[:, :, :3] = after
+        rgba[:, :, 3] = coverage.astype('uint8') * 255
         page = writer.pages[index]
         overlay = Image.fromarray(rgba)
         if page.rotation:

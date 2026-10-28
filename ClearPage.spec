@@ -4,6 +4,14 @@ from PyInstaller.utils.hooks import collect_all
 
 root = Path(SPECPATH)
 datas = [(str(root/'static'), 'static'), (str(root/'assets/huntington.npy'), 'assets'),
+         (str(root/'assets/unofficial-copy-1994.npz'), 'assets'),
+         (str(root/'assets/unofficial-copy-1019.npz'), 'assets'),
+         (str(root/'assets/unofficial-copy-1032.npz'), 'assets'),
+         (str(root/'assets/unofficial-copy-2019.npz'), 'assets'),
+         (str(root/'assets/unofficial-copy-2024.npz'), 'assets'),
+         (str(root/'assets/unofficial-copy-2029.npz'), 'assets'),
+         (str(root/'assets/unofficial-copy-2536.npz'), 'assets'),
+         (str(root/'assets/unofficial-copy-2538.npz'), 'assets'),
          (str(root/'assets/ocr-word.ps1'), 'assets'),
          (str(root/'models/big-lama.pt'), 'models'),
          (str(root/'models/PP-OCRv6_rec_small.onnx'), 'models')]

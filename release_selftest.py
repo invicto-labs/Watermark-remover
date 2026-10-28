@@ -8,9 +8,16 @@ import numpy as np
 from PIL import Image, ImageDraw
 import neural_restore
 import text_restore
+import scan_patterns
 
 
 def run(base, output):
+    for height in scan_patterns.GRAY_LAYOUTS:
+        with np.load(base/f'assets/unofficial-copy-{height}.npz', allow_pickle=False) as asset:
+            seed = asset['seed'].copy()
+        pixels, mask, stats = scan_patterns.unofficial_copy(Image.fromarray(seed), base/'assets')
+        if not stats['matched'] or not mask.any() or not np.array_equal(pixels[~mask], seed[~mask]):
+            raise RuntimeError('Packaged Unofficial Copy preset failed its preservation check.')
     image = np.full((64, 128, 3), 255, dtype=np.uint8)
     image[28:36, 60:68] = 175
     mask = np.zeros(image.shape[:2], dtype=bool)
@@ -23,5 +30,5 @@ def run(base, output):
     prediction = text_restore.recognize(np.array(word), base/'models'/text_restore.MODEL_NAME)
     if not np.isfinite(prediction['confidence']):
         raise RuntimeError('Packaged ONNX recognition returned invalid output.')
-    Path(output).write_text(json.dumps({'lama_inference': True, 'onnx_inference': True,
+    Path(output).write_text(json.dumps({'lama_inference': True, 'onnx_inference': True, 'scan_pattern_assets': True,
                                       'outside_mask_preserved': True}), encoding='utf-8')

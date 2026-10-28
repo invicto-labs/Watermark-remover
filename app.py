@@ -31,6 +31,8 @@ import page_polarity
 import quality_check
 import scan_input
 import pdf_selection
+import dotted_scans
+import scan_patterns
 
 BASE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 TOKEN = secrets.token_urlsafe(32)
@@ -248,6 +250,9 @@ def settings(data):
     if not isinstance(pages, list) or len(pages)>300 or any(type(i) is not int or not 0<=i<300 for i in pages):
         raise ValueError('Invalid manual inversion page selection.')
     color = dict(fix_negative=bool(data.get('fix_negative', False)), polarity_pages=sorted(set(pages)))
+    if method in (*dotted_scans.METHODS, *scan_patterns.METHODS):
+        return dict(method=method, mode='lama' if method == 'repeated_diagonal_ai' else 'careful', strokes=[], use_reviewed=False,
+                    auto_restore=False, scan_inversion=False, fix_negative=False, polarity_pages=[])
     if method == 'polarity':
         return dict(method='polarity', mode='careful', strokes=[], use_reviewed=False,
                     auto_restore=False, scan_inversion=False, polarity_pages=sorted(set(pages)))
@@ -308,6 +313,62 @@ def cleanup_page(job, index, options):
 
 
 def process_page(job, index, options):
+    if options['method'] in scan_patterns.METHODS:
+        before = Image.open(original(job, index)).convert('RGB')
+        cancelled = lambda: job['cancel']
+        if options['method'] == 'unofficial_copy':
+            import gray_scans
+            native = gray_scans.prepare(job['source'], index, job['dir'], BASE/'assets', cancelled)
+            if native is not None:
+                target, details = native
+                pixels = np.array(render_page(target, 0))
+                changed = np.any(pixels != np.array(before), axis=2)
+            else:
+                pixels, changed, details = scan_patterns.unofficial_copy(before, BASE/'assets', cancelled)
+        elif options['method'] == 'repeated_diagonal_ai':
+            selected, note = scan_patterns.repeated_ai_mask(before, cancelled)
+            source = np.array(before)
+            pixels = source.copy()
+            if selected.any():
+                import hashlib
+                key = hashlib.sha256(b'repeated-ai-v1'+selected.tobytes()+page_fingerprint(before).encode()).hexdigest()[:24]
+                cache = job['dir']/f'{index}-repeated-ai-{key}.png'
+                if cache.exists():
+                    with Image.open(cache) as cached:
+                        pixels = np.array(cached.convert('RGB'))
+                else:
+                    pixels = neural_restore.inpaint(source, selected, BASE/'models/big-lama.pt',
+                        cancelled=cancelled, progress=lambda n,total:job.update(message=f'AI draft: page {index+1} of {job["count"]}, region {n} of {total}.'))
+                    if cancelled(): raise InterruptedError('Cancelled')
+                    if pixels.shape != source.shape or pixels.dtype != np.uint8 or not np.array_equal(pixels[~selected], source[~selected]):
+                        raise ValueError('AI output failed pixel-preservation checks. No draft was applied.')
+                    Image.fromarray(pixels).save(cache)
+            if cancelled(): raise InterruptedError('Cancelled')
+            if pixels.shape != source.shape or pixels.dtype != np.uint8 or not np.array_equal(pixels[~selected], source[~selected]):
+                raise ValueError('AI output failed pixel-preservation checks. No draft was applied.')
+            changed = np.any(pixels != source, axis=2)
+            details = dict(scan_pattern=True, ai=True, confidence=None, matched=bool(selected.any()),
+                changed=int(changed.sum()), protected=int((~selected).sum()), selected_pixels=int(selected.sum()),
+                reviewed=False, uncertain=bool(selected.any()), reconstruction_unverified=bool(selected.any()), pattern_note=note)
+        else:
+            pixels, changed, details = scan_patterns.repeated_diagonal(before, cancelled)
+        Image.fromarray(pixels).save(image_path(job, index, True))
+        overlay = np.array(before)
+        overlay[changed] = (overlay[changed]*.45 + np.array([240,85,45])*.55).astype('uint8')
+        Image.fromarray(overlay).save(job['dir']/f'{index}-mask.png')
+        job.pop('pending_repair', None)
+        return dict(page=index, **details)
+    if options['method'] in dotted_scans.METHODS:
+        before = Image.open(original(job, index)).convert('RGB')
+        target, details = dotted_scans.prepare(job['source'], index, options['method'], job['dir'], before, lambda: job['cancel'])
+        after = render_page(target, 0)
+        after.save(image_path(job, index, True))
+        overlay = np.array(before)
+        changed = np.any(np.array(after) != overlay, axis=2)
+        overlay[changed] = (overlay[changed]*.45 + np.array([240,85,45])*.55).astype('uint8')
+        Image.fromarray(overlay).save(job['dir']/f'{index}-mask.png')
+        job.pop('pending_repair', None)
+        return dict(page=index, **details)
     if options['method'] == 'polarity':
         source = Image.open(original(job, index)).convert('RGB')
         pixels, details = page_polarity.correct(source, index in options.get('polarity_pages', []))
@@ -377,7 +438,7 @@ def process_page(job, index, options):
 
 def repair_job(identifier, data):
     job = job_for(identifier)
-    if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity'):
+    if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *scan_patterns.METHODS):
         raise ValueError('Switch to image cleanup to repair words; overlay removal and black-page correction do not apply word repairs.')
     if job['state'] not in ('review', 'done'):
         raise ValueError('Process all pages first, then repair words in the cleaned preview.')
@@ -493,7 +554,7 @@ def restoration_worker(job,clear=False):
 def restore_all_words(identifier):
     with LOCK:
         job=job_for(identifier)
-        if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity'):
+        if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *scan_patterns.METHODS):
             raise ValueError('Word restoration is disabled for overlay removal and black-page correction.')
         if job['state'] not in ('review','done'):
             raise ValueError('Process all pages before restoring words.')
@@ -730,10 +791,31 @@ def cancel(identifier):
     return jsonify(ok=True)
 
 
+def require_ai_review(job, keep):
+    if (job.get('options') or {}).get('method') == 'repeated_diagonal_ai':
+        reviewed = set(job.get('ui', {}).get('reviewed', []))
+        generated = {r['page'] for r in job.get('results', []) if r.get('reconstruction_unverified')}
+        if (set(keep) & generated) - reviewed:
+            raise ValueError('Review each selected AI draft and click Mark page reviewed before creating the PDF.')
+
+
 def export_worker(job, keep):
     try:
+        require_ai_review(job, keep)
         with LOCK:
-            if job['options']['method'] in ('overlay', 'object'):
+            if job['options']['method'] in dotted_scans.METHODS:
+                dotted_scans.write_clean(job['source'], job['dir']/'cleaned.pdf', keep,
+                                        job['options']['method'], job['dir'], lambda:job['cancel'])
+            elif job['options']['method'] == 'unofficial_copy':
+                import gray_scans
+                native = [i for i in keep if job['results'][i].get('native_gray')]
+                other = [i for i in keep if i not in native]
+                target = job['dir']/('native-gray-export.pdf' if other else 'cleaned.pdf')
+                gray_scans.write_clean(job['source'], target, native, job['dir'], lambda:job['cancel'])
+                if other:
+                    edits = {i: (original(job, i), image_path(job, i, True)) for i in other}
+                    write_pdf(target, job['dir']/'cleaned.pdf', edits, lambda:job['cancel'])
+            elif job['options']['method'] in ('overlay', 'object'):
                 corrected = [i for i in keep if (job['results'][i].get('color_correction') or {}).get('applied')]
                 target = job['dir']/('overlay-export.pdf' if corrected else 'cleaned.pdf')
                 if job['options']['method']=='object':
@@ -762,6 +844,7 @@ def export(identifier):
     if not isinstance(values, list) or any(type(v) is not int or not 0 <= v < job['count'] for v in values):
         raise ValueError('Invalid page selection.')
     keep = sorted(set(values))
+    require_ai_review(job, keep)
     job.update(state='exporting', cancel=False, message='Building the complete PDF...')
     threading.Thread(target=export_worker, args=(job, keep), daemon=True).start()
     return jsonify(public(job))

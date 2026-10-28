@@ -6,7 +6,7 @@ targetCanvas.setAttribute('aria-label','Select damaged word in cleaned page');
 donorCanvas.setAttribute('aria-label','Select clean word on source page');
 $('after').parentElement.append(targetCanvas);$('originalPaper').append(donorCanvas);
 function clearRepairPreview(){repairToken=null;$('repairPreview').hidden=true;$('confirmRepair').checked=false;$('applyRepair').disabled=true;}
-function repairReady(){return job&&!['overlay','object','polarity'].includes($('method').value)&&!['overlay','object','polarity'].includes((job.options||{}).method)&&['review','done'].includes(job.state)&&results.length===job.count;}
+function repairReady(){return job&&!['overlay','object','polarity','dotted_document','dotted_map','unofficial_copy','repeated_diagonal','repeated_diagonal_ai'].includes($('method').value)&&!['overlay','object','polarity','dotted_document','dotted_map','unofficial_copy','repeated_diagonal','repeated_diagonal_ai'].includes((job.options||{}).method)&&['review','done'].includes(job.state)&&results.length===job.count;}
 function syncRepair(){
  const ready=repairReady(); if(typeof syncAutomatic==='function')syncAutomatic(ready);
  for(const id of ['selectTarget','selectDonor','findWord','readWord','previewRepair','repairText','repairMethod','donorPage','repairFont','repairDarkness'])$(id).disabled=busy||!ready;

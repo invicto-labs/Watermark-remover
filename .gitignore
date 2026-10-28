@@ -27,6 +27,14 @@ models/
 !static/**
 !assets/**
 *.npz
+!assets/unofficial-copy-1994.npz
+!assets/unofficial-copy-1019.npz
+!assets/unofficial-copy-1032.npz
+!assets/unofficial-copy-2019.npz
+!assets/unofficial-copy-2024.npz
+!assets/unofficial-copy-2029.npz
+!assets/unofficial-copy-2536.npz
+!assets/unofficial-copy-2538.npz
 reviewed-pages/
 ClearPage-*/
 .env

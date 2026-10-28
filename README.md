@@ -2,6 +2,31 @@
 
 A local Windows application for watermark cleanup in PDFs and scanned images.
 
+## Dotted scan cleanup
+
+Under **More options > PDF type**, choose **Dotted watermark · search package**
+for the centered diagonal dotted "Unofficial Document" layout on portrait scans,
+or **Dotted watermark · plat map** for the large landscape map layout. Try one
+page, clean all pages, review the result and select the cleaned pages to save.
+Changed pages start unchecked. All pages remain in the exported document.
+
+These two presets remove dense clusters of isolated 1–4 pixel dots in their
+respective diagonal regions. Connected text and map strokes are retained;
+dots joined to those strokes can remain. Small isolated punctuation or symbols
+inside the selected area still need review. These are layout-specific presets,
+not automatic recognition of arbitrary watermarks or a text accuracy guarantee.
+
+Supported inputs are simple full-page, unrotated, 1-bit Indexed black-and-white
+PDF scans encoded with CCITT or Flate. Unsupported image structures stay
+unchanged. Large supported maps use bounded previews, while native cleanup and
+lossless export preserve the image dimensions, page geometry and drawing stream.
+Limits: 150 million native pixels and 24 million pixels in the processing region.
+No OCR, AI word replacement or whole-page resampling is used for these presets.
+They cannot be combined with color inversion in the same pass.
+
+Regression coverage is in `test_dotted_scans.py`, automatically included by the
+existing Windows CI test discovery. Company sample PDFs are kept out of Git.
+
 ## New in 2.2
 
 - **Select a text watermark:** find isolated text objects on the current page,
@@ -285,5 +310,42 @@ contain no company document or repaired document text. The watermark preset
 contains only the repeating watermark pattern.
 
 ## Verification
+
+### Additional scan presets
+
+Choose the matching **PDF type** under **More options**, try one page, then process
+all pages. These presets connect to preview, change highlighting, page review,
+saved work, and selective PDF export. Changed pages require explicit selection.
+
+| Pattern | App option | Scope |
+| --- | --- | --- |
+| Dotted diagonal Unofficial Document in a search package | Dotted watermark · search package | Removes supported isolated dots at native scan resolution; connected strokes remain. |
+| Dotted diagonal Unofficial Document on a large plat map | Dotted watermark · plat map | Uses the supported map layout and retains native map resolution. |
+| Gray diagonal Unofficial Copy on Warren County scans | Gray “Unofficial Copy” scan | Matches supported letter/legal and landscape plat-map scan templates, then reverses the gray blend. Simple full-page RGB scans are cleaned and exported at native resolution. Near-black original pixels stay unchanged. Other layouts are retained. |
+| Small repeated diagonal lettering across a scan | Repeated diagonal scan · blank areas only | **Partial cleanup only.** Detects regularly spaced diagonal lettering and removes isolated components outside a conservative document-content rectangle. Overlapping marks inside that rectangle remain. |
+| Repeated diagonal lettering overlapping document text | Repeated diagonal scan · AI draft | Optional local LaMa reconstruction of ink inside detected diagonal bands. Original strokes at intersections can be replaced. Generated wording, numbers, signatures and barcode data are unverified. |
+
+For **AI draft**, try one page before processing the file. Compare the Before and
+After views and highlight changes. Select only drafts you accept, then click
+**Mark page reviewed** on each selected page before **Create PDF**. The server
+rejects exports of selected AI drafts without that review state; original pages
+can always be retained. Reprocessing resets review. The model runs locally using
+the existing verified LaMa weights, caches predictions per source and mask, and
+preserves pixels outside the selected mask exactly. Missing weights, cancellation,
+and invalid output do not publish a new draft. This is not the image-generation
+service used in chat and does not guarantee complete removal or correct text.
+
+The eight gray-pattern NPZ assets contain watermark templates only. They are
+bundled with Windows releases and exercised by the packaged self-test. No source
+documents are included. These modes disable generated word repairs and color
+inversion for the pass. Pattern matching is not a text-accuracy percentage.
+Review words, punctuation, signatures, and map details before accepting results.
+The repeated-diagonal mode does not promise complete watermark removal or infer
+obscured characters; its protected area depends on detected horizontal content.
+
+`test_scan_patterns.py` checks the supported gray layouts, rejection of mismatched pages,
+pixel preservation, partial diagonal cleanup, cancellation, packaging assets,
+and application preview/batch/selective export. Customer-file acceptance checks
+are run locally and are not committed to the repository.
 
 Run `python test_app.py`, `python test_overlays.py`, `python test_quality.py`, and `python test_scans.py` in the Windows source environment. Tests exercise cleanup boundaries, text preservation, rotated/cropped PDF export, page retention, local request protection, upload validation, preview, batch processing, selective export, and session cleanup. Word-repair tests also verify selection validation, exact-case donor matching, preview isolation, confirmation, stale-preview rejection, outside-rectangle preservation, reprocessing, exported pixels and exact undo. Quality tests cover negative scans, manual overrides, normal-page preservation, reference metrics and benchmark validation.
