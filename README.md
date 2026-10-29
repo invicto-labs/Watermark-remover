@@ -63,6 +63,15 @@ objects remain underneath the corrections. This is partial visual cleanup:
 watermark ink merged with protected text may remain, and a 100% original or
 watermark-free result cannot be guaranteed from a flattened scan.
 
+## Gray watermark cleanup
+
+The **Unofficial Copy** preset also clears pale compression speckles left around
+the matched gray letters after reverse blending. It also removes pale connected
+fragments that trace the known watermark outline; dark ink, crossing document
+strokes and pixels outside the matched watermark remain protected.
+Reprocess previously cleaned pages to apply it; older native gray caches are
+ignored. Review small symbols and overlapping text before exporting.
+
 ## Dotted scan cleanup
 
 Under **More options > PDF type**, choose **Dotted watermark · search package**

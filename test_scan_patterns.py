@@ -48,6 +48,73 @@ def huntington_fixture():
 
 
 class ScanPatternTests(unittest.TestCase):
+    def test_gray_outline_match_removes_long_fragments_but_keeps_crossing_lines(self):
+        seed = Image.new('RGB', (1541, 240), 'white')
+        draw = ImageDraw.Draw(seed)
+        for x in (100, 400, 1000):
+            draw.polygon([(x, 30), (x+120, 150), (x+140, 150), (x+20, 30)],
+                         fill=(160, 160, 160))
+        image = Image.new('RGB', seed.size, 'white')
+        draw = ImageDraw.Draw(image)
+        draw.line((100, 30, 220, 150), fill=(205, 205, 205))
+        draw.line((350, 90, 600, 90), fill=(225, 225, 225))
+        draw.line((700, 30, 820, 150), fill=(225, 225, 225))
+        # A dark mark on a known edge must not be mistaken for an outline.
+        draw.line((1000, 30, 1120, 150), fill=(80, 80, 80))
+        a = np.array(image)
+        selected = np.ones(a.shape[:2], bool)
+        result, removed = patterns.gray_watermark_edges(a, selected, np.array(seed))
+        self.assertGreater(removed, 100)
+        self.assertTrue(np.all(result[:, :300] == 255))
+        np.testing.assert_array_equal(result[:, 300:], a[:, 300:])
+        # A contour connected to content outside the selection is retained.
+        selected[30, 100] = False
+        result, removed = patterns.gray_watermark_edges(a, selected, np.array(seed))
+        np.testing.assert_array_equal(result, a)
+        self.assertEqual(removed, 0)
+        with self.assertRaises(InterruptedError):
+            patterns.gray_watermark_edges(a, selected, np.array(seed), lambda: True)
+
+    def test_gray_residue_removes_speckle_and_preserves_faint_geometry(self):
+        a = np.full((240, 1541, 3), 255, 'uint8')
+        selected = np.zeros(a.shape[:2], bool)
+        selected[20:220, 100:1400] = True
+        # Disconnected gray fragments left by compressed watermark edges.
+        for y in range(40, 110, 8):
+            a[y, 150:400:8] = 225
+            a[y+2, 150:400:8] = 198
+        # Long faint lines, a short printed stroke, and dark punctuation.
+        a[150, 200:600] = 230
+        a[30:210, 700] = 225
+        for y in range(40, 180):
+            a[y, 800+y] = 230
+        a[180:183, 400:410] = 200
+        a[190, 500] = 80
+        # Even a short faint component crossing the selection must survive.
+        a[19:23, 1100] = 230
+        a[10, 50] = 225
+        before = a.copy()
+        result, removed = patterns.gray_watermark_residue(a, selected)
+        self.assertGreater(removed, 400)
+        self.assertTrue(np.all(result[40:110, 150:400] == 255))
+        np.testing.assert_array_equal(result[120:], a[120:])
+        np.testing.assert_array_equal(result[:, 650:], a[:, 650:])
+        np.testing.assert_array_equal(result[~selected], a[~selected])
+        np.testing.assert_array_equal(a, before)
+        self.assertEqual(removed, np.any(result != a, axis=2).sum())
+
+    def test_gray_residue_keeps_stroke_edges_and_handles_cancellation(self):
+        a = np.full((60, 1541, 3), 255, 'uint8')
+        selected = np.ones(a.shape[:2], bool)
+        a[30, 500:540] = 100
+        a[29, 500:540] = 235
+        a[31, 500:540] = 240
+        result, removed = patterns.gray_watermark_residue(a, selected)
+        np.testing.assert_array_equal(result, a)
+        self.assertEqual(removed, 0)
+        with self.assertRaises(InterruptedError):
+            patterns.gray_watermark_residue(a, selected, lambda: True)
+
     def test_huntington_removes_more_without_changing_known_text_pixels(self):
         a = huntington_fixture()
         lettering = Image.new('L', (1192, 1684), 255)

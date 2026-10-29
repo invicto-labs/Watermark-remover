@@ -29,10 +29,11 @@ class NativeGrayTests(unittest.TestCase):
             a=gray_fixture(2536);self.make_pdf(source,Image.fromarray(a))
             digest=source.read_bytes()
             # An older saved workspace may contain an unsupported-layout result.
-            (root/'0-native-gray-v1.pdf').write_bytes(b'old cached result')
-            (root/'0-native-gray-v1.json').write_text('{"matched":false}')
+            for version in ('v1', 'v2', 'v3'):
+                (root/f'0-native-gray-{version}.pdf').write_bytes(b'old cached result')
+                (root/f'0-native-gray-{version}.json').write_text('{"matched":false}')
             preview,details=gray_scans.prepare(source,0,root,ASSETS)
-            self.assertEqual(preview.name,'0-native-gray-v2.pdf')
+            self.assertEqual(preview.name,'0-native-gray-v4.pdf')
             self.assertTrue(details['native_gray']);self.assertTrue(details['matched'])
             gray_scans.write_clean(source,root/'output.pdf',[0],root)
             b=np.array(PdfReader(root/'output.pdf').pages[0].images[0].image.convert('RGB'))
@@ -58,7 +59,7 @@ class NativeGrayTests(unittest.TestCase):
             p[NameObject('/Rotate')]=NumberObject(90)
             self.assertIsNone(gray_scans.scan_object(p))
             with self.assertRaises(InterruptedError):gray_scans.prepare(source,0,root,ASSETS,lambda:True)
-            self.assertFalse((root/'0-native-gray-v2.pdf').exists())
+            self.assertFalse((root/'0-native-gray-v4.pdf').exists())
 
 
 if __name__=='__main__':unittest.main()

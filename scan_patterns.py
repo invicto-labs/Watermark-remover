@@ -79,6 +79,71 @@ def huntington_ink_protection(a, mask):
     return protected
 
 
+def gray_watermark_residue(result, selected, cancelled=lambda: False):
+    """Clear inverse-blend speckle only within confidently matched gray glyphs.
+
+    Compression noise survives division as pale, disconnected edge fragments.
+    Keep substantial ink, long faint strokes, and components that continue out
+    of the matched area, including their antialiased edges. Work from a fixed
+    image so repeated erosion cannot eat into document content.
+    """
+    gray = result.min(2)
+    scale = result.shape[1] / 1541
+    _, labels, boxes, _ = cv2.connectedComponentsWithStats(
+        (gray < 210).astype('uint8'), connectivity=8)
+    substantial = boxes[:, 4] >= max(4, round(4 * scale * scale))
+    substantial[0] = False
+    protected = substantial[labels] | (gray < 170)
+    if cancelled():
+        raise InterruptedError('Cancelled')
+    _, labels, boxes, _ = cv2.connectedComponentsWithStats(
+        (gray < 245).astype('uint8'), connectivity=8)
+    length = max(12, round(20 * scale))
+    connected = (boxes[:, 2] >= length) | (boxes[:, 3] >= length)
+    connected[np.unique(labels[(gray < 245) & ~selected])] = True
+    connected[0] = False
+    protected |= connected[labels]
+    radius = max(1, round(scale))
+    protected = cv2.dilate(protected.astype('uint8'),
+                           np.ones((2*radius+1, 2*radius+1), 'uint8')) > 0
+    clear = selected & ~protected & (gray >= 170) & (gray < 255)
+    cleaned = result.copy()
+    cleaned[clear] = 255
+    return cleaned, int(clear.sum())
+
+
+def gray_watermark_edges(result, selected, seed, cancelled=lambda: False):
+    """Remove pale contour fragments that trace the known watermark boundary.
+
+    Long residual edges otherwise look like protected map lines. Require almost
+    the entire connected fragment to follow the matched glyph edge, with no dark
+    ink or continuation outside the selection. Crossing document strokes fail
+    this test and remain intact, as do their antialiased neighbours.
+    """
+    gray = result.min(2)
+    radius = max(1, round(2 * result.shape[1] / 1541))
+    edge = cv2.morphologyEx((seed.min(2) < 225).astype('uint8'),
+                            cv2.MORPH_GRADIENT,
+                            np.ones((2*radius+1, 2*radius+1), 'uint8')) > 0
+    count, labels, boxes, _ = cv2.connectedComponentsWithStats(
+        (gray < 250).astype('uint8'), connectivity=8)
+    hits = np.bincount(labels[edge], minlength=count)
+    contours = hits / np.maximum(boxes[:, 4], 1) > .95
+    contours[np.unique(labels[(gray < 170) | ~selected])] = False
+    contours[0] = False
+    if cancelled():
+        raise InterruptedError('Cancelled')
+    fragments = contours[labels]
+    fringe = max(1, round(result.shape[1] / 1541))
+    kernel = np.ones((2*fringe+1, 2*fringe+1), 'uint8')
+    remove = cv2.dilate(fragments.astype('uint8'), kernel) > 0
+    protected = cv2.dilate(((gray < 245) & ~fragments).astype('uint8'), kernel) > 0
+    remove &= selected & ~protected & (gray < 255)
+    cleaned = result.copy()
+    cleaned[remove] = 255
+    return cleaned, int(remove.sum())
+
+
 def unofficial_copy(image, assets, cancelled=lambda: False):
     a = np.array(image.convert('RGB'))
     h, w = a.shape[:2]
@@ -119,11 +184,16 @@ def unofficial_copy(image, assets, cancelled=lambda: False):
     result = invert_multiply(a, template, selected)
     near_ink = cv2.dilate((result.min(2) < 180).astype('uint8'), np.ones((3,3),'uint8')) > 0
     result[selected & ~near_ink & (result.min(2) >= 235)] = 255
+    result, residue = gray_watermark_residue(result, selected, cancelled)
+    result, outlines = gray_watermark_edges(result, selected, seed, cancelled)
+    if cancelled():
+        raise InterruptedError('Cancelled')
     changed = np.any(result != a, axis=2)
     return result, changed, dict(scan_pattern=True, confidence=None, pattern_match=round(agreement, 3),
         matched=bool(changed.any()), changed=int(changed.sum()), protected=int((scope & (gray <= 32)).sum()),
-        reviewed=False, uncertain=bool(changed.any()),
-        pattern_note='Unofficial Copy reverse blending applied. Original near-black strokes retained; check words beneath the gray mark before selecting this page.')
+        reviewed=False, uncertain=bool(changed.any()), residue_removed=residue,
+        outlines_removed=outlines,
+        pattern_note='Unofficial Copy reverse blending, compression-speckle and matched-outline cleanup applied. Dark ink and strokes crossing the watermark boundary are protected; check words and map symbols beneath the mark before selecting this page.')
 
 
 def _repeated_detection(image, cancelled=lambda: False):
