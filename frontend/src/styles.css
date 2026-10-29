@@ -439,7 +439,7 @@
 .editor-file > div { min-width: 0; }
 .workspace-mode .editor-heading h1 { font-size: 21px; line-height: 1.25; }
 .workspace-mode .editor-heading p { margin-top: 5px; }
-.workspace-mode .editor-layout { grid-template-columns: minmax(0, 1fr) 400px; gap: 20px; }
+.workspace-mode .editor-layout { grid-template-columns: minmax(0, 1fr) clamp(440px, 29vw, 560px); gap: 20px; }
 .workspace-mode .editor-layout.initial-preview { grid-template-columns: minmax(0, 1.15fr) minmax(420px, .85fr); }
 .workspace-mode .document-viewer, .workspace-mode .cleanup-panel { top: 16px; height: var(--editor-height); min-height: 360px; }
 .workspace-mode .viewer-toolbar, .workspace-mode .page-navigation { height: 44px; }
@@ -490,3 +490,68 @@
   .workspace-mode .page-canvas.comparing figcaption strong { font-size: 12px; }
   .workspace-mode .page-canvas.comparing .page-image { padding: 6px; }
 }
+
+/* Keep thumbnail selection directly on the page preview. */
+.review-page-item { position: relative; }
+.review-page-item .review-page-choice { position: absolute; top: 16px; left: 16px; z-index: 2; display: grid; place-items: center; width: 30px; height: 30px; margin: 0; border: 1px solid #e4dcd6; border-radius: 6px; background: white; box-shadow: 0 2px 6px #3522191a; }
+.review-page-choice input { width: 20px; height: 20px; margin: 0; cursor: pointer; }
+.review-page-status { margin: 8px 0 0; text-align: center; font-size: 10px; line-height: 1.4; color: #8e7e76; }
+@media (max-width: 800px) { .review-page-item .review-page-choice { top: 12px; left: 12px; } }
+@media (max-width: 600px) { .review-page-item .review-page-choice { top: 8px; left: 8px; width: 26px; height: 26px; }.review-page-choice input { width: 18px; height: 18px; }.review-page-status { font-size: 9px; } }
+
+/* Keep page navigation and selection beside the preview tools. */
+.review-mode .review-page-toolbar { flex-wrap: wrap; gap: 10px 16px; }
+.review-page-toolbar .review-page-controls { flex-shrink: 0; gap: 6px; }
+.review-page-toolbar .review-page-controls label { white-space: nowrap; }
+.review-page-toolbar .review-current-choice { flex-shrink: 0; }
+.review-page-toolbar > .zoom-controls { margin-left: auto; }
+@media (max-width: 800px) {
+  .review-page-toolbar .review-current-choice { font-size: 10px; }
+  .review-page-toolbar > .zoom-controls { margin-left: 0; }
+}
+@media (max-width: 600px) {
+  .review-mode .review-page-toolbar { gap: 8px; }
+  .review-page-toolbar .review-current-choice { justify-content: center; width: 100%; }
+  .review-page-toolbar > .zoom-controls { justify-content: center; width: 100%; }
+}
+
+/* Group page navigation and clarify the cleaned-page selection state. */
+.review-page-toolbar .review-page-controls { gap: 8px; padding: 4px; border: 1px solid #e7e0da; border-radius: 9px; background: #faf8f6; }
+.review-page-toolbar .review-page-controls .icon-button { width: 28px; height: 28px; background: white; border: 1px solid #ebe5df; color: #70635b; }
+.review-page-toolbar .review-page-controls .icon-button:disabled { opacity: .35; }
+.review-page-toolbar .review-page-controls label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #84766e; }
+.review-page-toolbar .review-page-controls select { margin: 0; padding: 3px 5px; min-width: 42px; border-color: #e7ddd6; background: white; font-weight: 600; font-size: 12px; color: #453831; }
+.review-selection-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.review-page-toolbar .review-current-choice { position: relative; width: auto; min-height: 38px; padding: 8px 10px; gap: 8px; border: 1px solid #e7e0da; border-radius: 9px; background: #faf8f6; }
+.review-page-toolbar .review-current-choice.is-enabled { border-color: #efc3b9; background: #fff4ef; }
+.review-current-choice input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.review-current-choice .review-selection-switch { position: relative; display: block; width: 28px; height: 16px; flex-shrink: 0; border-radius: 20px; background: #c7bfb8; transition: background .18s; }
+.review-selection-switch::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: white; box-shadow: 0 1px 3px #30221b26; transition: transform .18s; }
+.review-current-choice input:checked + .review-selection-switch { background: #d92d20; }
+.review-current-choice input:checked + .review-selection-switch::after { transform: translateX(12px); }
+.review-current-choice input:focus-visible + .review-selection-switch { outline: 2px solid #d92d20; outline-offset: 3px; }
+.review-current-choice input:disabled ~ span { opacity: .5; cursor: not-allowed; }
+.review-current-choice .review-selection-label { display: inline; font-size: 11px; font-weight: 500; color: #51423a; }
+.review-caution-badge { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #eadbc3; border-radius: 6px; padding: 5px 7px; background: #fff9ee; color: #9a702c; font-size: 10px; white-space: nowrap; }
+.review-caution-badge::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+@media (max-width: 600px) { .review-selection-group { justify-content: center; width: 100%; gap: 6px; }.review-page-toolbar .review-current-choice { width: auto; }.review-current-choice .review-selection-switch { display: block; }.review-current-choice .review-selection-label { display: inline; } }
+
+/* Progress belongs in the navbar, leaving the workspace for the document. */
+.navbar .stepper { margin: 0 0 0 auto; gap: 16px; }
+.workspace-mode .navbar .stepper { margin-bottom: 0; }
+.workspace-mode .workspace-content { --editor-height: calc(100dvh - 161px); }
+@media (max-width: 700px) {
+  .navbar { flex-wrap: wrap; gap: 16px; padding: 16px 20px; }
+  .navbar .stepper { width: 100%; margin: 0; gap: 8px; justify-content: center; padding-top: 12px; border-top: 1px solid #eee7e2; }
+  .navbar .step-line { flex: 1; max-width: 40px; }
+}
+
+/* Distinct action colors with subtle tactile depth. */
+.workspace-mode .panel-actions { gap: 12px; background: linear-gradient(180deg, #fff, #faf8f6); }
+.panel-actions .preview-action, .panel-actions .review-action, .panel-actions .clean-action { min-height: 46px; border-radius: 9px; font-size: 12px; font-weight: 600; transition: background .18s, box-shadow .18s, transform .15s; }
+.panel-actions .preview-action { background: linear-gradient(180deg, #ee4535, #d82b1e); border-color: #ce2c20; box-shadow: inset 0 1px 0 #ffffff38, 0 3px 0 #a92117, 0 6px 12px #cc332026; }
+.panel-actions .preview-action:hover:not(:disabled) { background: linear-gradient(180deg, #f25342, #df3022); border-color: #ce2c20; box-shadow: inset 0 1px 0 #ffffff40, 0 4px 0 #a92117, 0 8px 16px #cc33202b; transform: translateY(-1px); }
+.panel-actions .review-action, .panel-actions .clean-action { color: white; background: linear-gradient(180deg, #455777, #30415f); border-color: #2c3b56; box-shadow: inset 0 1px 0 #ffffff26, 0 3px 0 #1c2940, 0 6px 12px #23334f24; }
+.panel-actions .review-action:hover:not(:disabled), .panel-actions .clean-action:hover:not(:disabled) { background: linear-gradient(180deg, #506487, #394d70); border-color: #30415f; box-shadow: inset 0 1px 0 #ffffff30, 0 4px 0 #1c2940, 0 8px 16px #23334f2b; transform: translateY(-1px); }
+.panel-actions .preview-action:active:not(:disabled), .panel-actions .review-action:active:not(:disabled), .panel-actions .clean-action:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 2px 4px #00000020, 0 1px 0 #30211b4d; }
+.panel-actions .button:disabled { transform: none; box-shadow: none; }

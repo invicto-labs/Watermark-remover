@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, CircleHelp, FileText, Layers3, LoaderCircle, LockKeyhole, Maximize2, Plus, ScanLine, ShieldCheck, Upload, WandSparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, CircleHelp, FileText, LoaderCircle, LockKeyhole, Maximize2, Plus, ScanLine, ShieldCheck, Upload, WandSparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
 import './styles.css';
 import HuntingtonReview from './HuntingtonReview';
 import CleanupProgress from './CleanupProgress';
 import PdfReview from './PdfReview';
+import useCtrlWheelZoom from './useCtrlWheelZoom';
 
 const presets = [
   { id: 'dotted_document', title: 'Dotted document', description: 'Diagonal dotted lettering on scanned documents.', image: 'dotted-document', tag: 'Documents' },
@@ -42,7 +43,7 @@ function Button({ children, variant = 'primary', className = '', ...props }) {
 }
 
 function Brand() {
-  return <span className="brand"><span className="brand-mark"><Layers3 size={23} strokeWidth={1.7} /></span>clearpage<span className="brand-dot">.</span></span>;
+  return <span className="brand"><img className="brand-mark" src="/static/favicon.svg" alt="" width="36" height="36" />clearpage<span className="brand-dot">.</span></span>;
 }
 
 function HelpDialog({ onClose }) {
@@ -95,6 +96,8 @@ export default function App() {
   const fileRef = useRef(null);
   const uploadLock = useRef(false);
   const titleRef = useRef(null);
+  const canvasRef = useRef(null);
+  useCtrlWheelZoom(canvasRef, direction => setZoom(value => Math.max(50, Math.min(200, value + direction * 25))), view === 'workspace' && !!job);
   const stage = job && view === 'review' ? 2 : job && view === 'workspace' ? 1 : 0;
 
   useEffect(() => {
@@ -166,8 +169,8 @@ export default function App() {
   }
   function finishCleanup(state) {
     const next = state.results || [];
-    setResults(next); setPreviewed(new Set(next.map(item => item.page))); setSelected(new Set(next.filter(item => item.changed && !item.uncertain).map(item => item.page))); setPage(0); setRevision(value => value + 1); setPreviewError(false);
-    setMessage(next.some(item => item.changed) ? 'Cleanup complete. Review your pages and choose which cleaned results to keep. Pages needing review start unchecked.' : 'No supported watermarks found. Try another preset or export the original pages.');
+    setResults(next); setPreviewed(new Set(next.map(item => item.page))); setSelected(new Set(Array.from({ length: state.count }, (_, index) => index))); setPage(0); setRevision(value => value + 1); setPreviewError(false);
+    setMessage(next.some(item => item.changed) ? 'Cleanup complete. All pages are selected. Review the results and uncheck any page to keep its original.' : 'No supported watermarks found. Try another preset or export the original pages.');
     setCleanupProgress({ completed: state.count, total: state.count, status: 'complete', message: '' });
   }
   async function preview() {
@@ -213,13 +216,9 @@ export default function App() {
     <div className="main-shell">
       <header className="navbar">
         <a className="brand-link" href="/" onClick={event => { event.preventDefault(); navigate('upload'); }} aria-label="ClearPage home"><Brand /></a>
-        <nav aria-label="Main navigation" className="navbar-links">
-          <button disabled={busy} className="navbar-link active" aria-current="page" onClick={() => navigate(job ? (results.length ? 'review' : 'workspace') : 'upload')}><WandSparkles size={17} /><span>PDF cleanup</span></button>
-        </nav>
-        <div className="navbar-actions"><span className="navbar-private"><LockKeyhole size={14} />Processed locally</span><button className="navbar-help" onClick={() => setHelp(true)}><CircleHelp size={18} /><span>Help</span></button></div>
+        {view !== 'review' && <div className="stepper" aria-label="Cleanup progress">{steps.map((label, index) => <React.Fragment key={label}>{index > 0 && <span className={`step-line ${stage >= index ? 'complete' : ''}`} />}<span className={`step ${stage === index ? 'current' : stage > index ? 'done' : ''}`} aria-current={stage === index ? 'step' : undefined}><b>{stage > index ? <Check size={12} /> : `0${index + 1}`}</b><span>{label}</span></span></React.Fragment>)}</div>}
       </header>
       <main className={view === 'review' ? 'main-content review-content' : view === 'workspace' ? 'main-content workspace-content' : 'main-content'}>
-        {view !== 'review' && <div className="stepper" aria-label="Cleanup progress">{steps.map((label, index) => <React.Fragment key={label}>{index > 0 && <span className={`step-line ${stage >= index ? 'complete' : ''}`} />}<span className={`step ${stage === index ? 'current' : stage > index ? 'done' : ''}`} aria-current={stage === index ? 'step' : undefined}><b>{stage > index ? <Check size={12} /> : `0${index + 1}`}</b><span>{label}</span></span></React.Fragment>)}</div>}
         <input ref={fileRef} type="file" accept="application/pdf,.pdf" aria-label="Choose a PDF" className="sr-only" disabled={busy} onChange={event => upload(event.target.files?.[0])} />
 
         {view === 'upload' && <>
@@ -239,7 +238,7 @@ export default function App() {
         {view === 'workspace' && job && <>
           <div className="editor-heading"><div className="editor-file"><button className="icon-button" aria-label="Back to upload" disabled={busy} onClick={() => navigate('upload')}><ArrowLeft size={18} /></button><FileText size={22} /><div><h1 ref={titleRef} tabIndex={-1}>{job.name}</h1><p>{job.count} {job.count === 1 ? 'page' : 'pages'}<span>·</span>{(job.size / 1024 / 1024).toFixed(1)} MB<span>·</span><LockKeyhole size={12} />Local document</p></div></div><Button variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}><Plus size={16} />New PDF</Button></div>
           <div className={`editor-layout ${!comparing ? 'initial-preview' : ''}`}><section className="document-viewer" aria-label="Document preview"><div className="viewer-toolbar"><span><span className="live-dot" />{comparing ? 'Compare your result' : 'Original document'}</span><div className="zoom-controls"><button className="icon-button" aria-label="Zoom out" disabled={zoom <= 50} onClick={() => setZoom(value => value - 25)}><ZoomOut size={16} /></button><span>{zoom}%</span><button className="icon-button" aria-label="Zoom in" disabled={zoom >= 200} onClick={() => setZoom(value => value + 25)}><ZoomIn size={16} /></button><button className="icon-button" aria-label="Reset zoom" onClick={() => setZoom(100)}><Maximize2 size={15} /></button></div></div>
-            <div className={`page-canvas ${comparing ? 'comparing' : ''} zoom-${zoom}`}>
+            <div ref={canvasRef} title="Hold Ctrl and scroll to zoom" className={`page-canvas ${comparing ? 'comparing' : ''} zoom-${zoom}`}>
               <figure className="comparison-before"><figcaption><strong>{comparing ? 'Before' : 'Original'}</strong><span>Original PDF</span></figcaption><div className="page-image"><img src={`/api/page/${job.id}/${page}/before?v=${revision}`} alt={`Original document page ${page + 1}`} onError={() => setPreviewError(true)} /></div></figure>
               {comparing && <figure className="comparison-after"><figcaption><strong>After</strong><span><Check size={13} />Cleaned preview</span></figcaption><div className="page-image"><img src={`/api/page/${job.id}/${page}/after?v=${revision}`} alt={`Cleaned document page ${page + 1}`} onError={() => setPreviewError(true)} /></div></figure>}
             </div>
@@ -248,12 +247,11 @@ export default function App() {
           </section>
           <aside className="cleanup-panel" aria-label="Cleanup settings"><div className="panel-title"><span className="feature-icon"><WandSparkles size={20} /></span><div><h2>Choose your PDF type</h2><p>Select a card to see an example.</p></div></div>
             <fieldset disabled={busy} className="preset-fieldset"><legend className="sr-only">PDF type</legend><div className="pdf-type-grid">{presets.map(item => <button type="button" key={item.id} className={'pdf-type-card ' + (method === item.id ? 'selected' : '')} aria-label={'View ' + item.title + ' PDF type'} aria-haspopup="dialog" onClick={() => setPdfType(item)}><span className="pdf-type-thumbnail"><img src={'/static/type-' + item.image + '.' + (item.image === 'polarity' ? 'svg' : 'webp')} alt="" />{method === item.id && <span className="pdf-type-check"><Check size={13} /></span>}</span><span className="pdf-type-card-title">{item.title}<ArrowRight size={14} /></span><span className="pdf-type-tag">{item.tag}</span><span className="sr-only">{method === item.id ? 'Selected' : ''}</span></button>)}</div></fieldset>
-            <div className="panel-actions"><Button className="preview-action" onClick={preview} disabled={busy}><ScanLine size={16} />Preview first page</Button><Button className="clean-action" onClick={cleanAll} disabled={busy}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}Clean all {job.count} {job.count === 1 ? 'page' : 'pages'}<ArrowRight size={16} /></Button><span className="panel-footnote"><ShieldCheck size={13} />Your original is always preserved.</span></div>
+            <div className="panel-actions"><Button className="preview-action" onClick={preview} disabled={busy}><ScanLine size={16} />Preview first page</Button>{results.length ? <Button className="review-action" onClick={() => navigate('review')} disabled={busy}><Check size={16} />Review pages<ArrowRight size={16} /></Button> : <Button className="clean-action" onClick={cleanAll} disabled={busy}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}Clean all {job.count} {job.count === 1 ? 'page' : 'pages'}<ArrowRight size={16} /></Button>}<span className="panel-footnote"><ShieldCheck size={13} />Your original is always preserved.</span></div>
           </aside></div>
           <div aria-live="polite" role={error ? 'alert' : 'status'} className={`status-banner ${error ? 'error' : ''}`}>{busy ? <LoaderCircle size={17} className="animate-spin" /> : error ? <CircleHelp size={17} /> : <Check size={17} />}<span>{error || message}</span>{busy && progress !== null && <span className="progress-value">{progress}%</span>}</div>
           {busy && <progress className="work-progress" aria-label="Document processing progress" {...(progress !== null ? { value: progress, max: 100 } : {})} />}
-          {method==='huntington_background'&&previewed.size>0&&<HuntingtonReview key={job.id} job={job} results={results} page={page} revision={revision} preview={huntingtonPreview} busy={busy} request={request} waitForJob={waitForJob} begin={begin} end={()=>setBusy(false)} onPage={setPage} update={state=>{setJob(previous=>({...previous,...state}));setResults(state.results||[]);setRevision(value=>value+1);setSelected(new Set());setDownloaded(false);setMessage(state.message||'Review the updated text.');}}/>}
-          {!!results.length && <Button className="open-review-button" disabled={busy} onClick={() => navigate('review')}>Review pages<ArrowRight size={16} /></Button>}
+          {method==='huntington_background'&&previewed.size>0&&<HuntingtonReview key={job.id} job={job} results={results} page={page} revision={revision} preview={huntingtonPreview} busy={busy} request={request} waitForJob={waitForJob} begin={begin} end={()=>setBusy(false)} onPage={setPage} update={state=>{setJob(previous=>({...previous,...state}));setResults(state.results||[]);setRevision(value=>value+1);setSelected(new Set((state.results||[]).map(item=>item.page)));setDownloaded(false);setMessage(state.message||'Review the updated text.');}}/>}
         </>}
         {view === 'review' && job && <PdfReview job={job} results={results} selected={selected} page={page} revision={revision} busy={busy} error={error} message={message} downloaded={downloaded} onPage={setPage} onToggle={togglePage} onSelectAll={() => setSelected(selected.size === job.count ? new Set() : new Set(Array.from({ length: job.count }, (_, index) => index)))} onDownload={download} onBack={() => navigate('workspace')} />}
       </main>
