@@ -474,3 +474,19 @@
 .panel-actions .preview-action:hover { background: #bd2419; border-color: #bd2419; }
 .panel-actions .clean-action { min-height: 42px; background: #35312f; border-color: #35312f; color: #fff; box-shadow: none; }
 .panel-actions .clean-action:hover { background: #211e1c; border-color: #211e1c; }
+
+/* Distinct before and after comparison sections. */
+.workspace-mode .page-canvas.comparing { background: #eae7e4; background-image: none; }
+.workspace-mode .page-canvas.comparing figure { display: flex; flex-direction: column; overflow: hidden; border: 1px solid #d6cfca; border-radius: 10px; background: #f8f6f4; box-shadow: 0 2px 8px #4832250a; }
+.workspace-mode .page-canvas.comparing figcaption { flex-shrink: 0; min-height: 44px; margin: 0; padding: 10px 14px; border-bottom: 1px solid #ddd6d0; background: white; }
+.workspace-mode .page-canvas.comparing figcaption strong { font-size: 14px; font-weight: 650; letter-spacing: -.2px; color: #534b46; }
+.workspace-mode .page-canvas.comparing figcaption span { font-size: 10px; color: #8c8078; }
+.workspace-mode .page-canvas.comparing .page-image { padding: 12px; }
+.workspace-mode .page-canvas.comparing .comparison-after { border-color: #d6cfca; background: #f8f6f4; }
+.workspace-mode .page-canvas.comparing .comparison-after figcaption { border-bottom-color: #ddd6d0; background: white; }
+.workspace-mode .page-canvas.comparing .comparison-after figcaption strong, .workspace-mode .page-canvas.comparing .comparison-after figcaption span { color: #534b46; }
+@media (max-width: 600px) {
+  .workspace-mode .page-canvas.comparing figcaption { min-height: 38px; padding: 8px; }
+  .workspace-mode .page-canvas.comparing figcaption strong { font-size: 12px; }
+  .workspace-mode .page-canvas.comparing .page-image { padding: 6px; }
+}
