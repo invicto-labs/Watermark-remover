@@ -71,7 +71,7 @@ class OverlayTests(unittest.TestCase):
         with self.assertRaises(InterruptedError):overlay.write_clean(self.source,target,[0],lambda:True)
         self.assertEqual(target.read_bytes(),b'previous output')
     def test_application_overlay_preview_export_and_repair_guard(self):
-        client=app.app.test_client();client.get('/?key='+app.TOKEN)
+        client=app.app.test_client();client.get('/')
         headers={'X-ClearPage':'local'}
         response=client.post('/api/upload',data=self.source.read_bytes(),headers=headers)
         self.assertEqual(response.status_code,200,response.json);job=response.json;identifier=job['id']

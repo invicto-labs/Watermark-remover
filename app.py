@@ -14,7 +14,7 @@ import webbrowser
 import base64
 import subprocess
 from functools import wraps
-from flask import Flask, request, jsonify, send_file, make_response
+from flask import Flask, request, jsonify, send_file
 from werkzeug.serving import make_server, WSGIRequestHandler
 from werkzeug.utils import secure_filename
 from PIL import Image
@@ -33,10 +33,9 @@ import scan_input
 import pdf_selection
 import dotted_scans
 import scan_patterns
+import huntington
 
 BASE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
-TOKEN = secrets.token_urlsafe(32)
-COOKIE_NAME = 'clearpage_' + TOKEN[:12]
 ROOT = Path(tempfile.mkdtemp(prefix='ClearPage-'))
 PROFILE_ROOT = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))/'ClearPage'/'reviewed-pages'
 LOCK = threading.RLock()
@@ -49,14 +48,14 @@ app.config['MAX_CONTENT_LENGTH'] = 150*1024*1024
 
 @app.before_request
 def local_only():
+    if request.remote_addr not in ('127.0.0.1', '::1'):
+        return jsonify(error='ClearPage accepts connections only from this computer.'), 403
     if HOST and request.host != HOST:
         return jsonify(error='This app accepts connections only from its own local window.'), 403
-    if request.headers.get('Origin') and request.headers['Origin'] != f'http://{HOST}':
+    if request.headers.get('Origin') and request.headers['Origin'] != f'http://{HOST or request.host}':
         return jsonify(error='Cross-site request rejected.'), 403
-    if request.path == '/' and secrets.compare_digest(request.args.get('key', ''), TOKEN):
-        return None
-    if not secrets.compare_digest(request.cookies.get(COOKIE_NAME, ''), TOKEN):
-        return jsonify(error='Session expired. Reopen ClearPage using its launcher.'), 403
+    if request.headers.get('Sec-Fetch-Site') == 'cross-site' and request.path != '/':
+        return jsonify(error='Cross-site request rejected.'), 403
     if request.method == 'POST' and request.headers.get('X-ClearPage') != 'local':
         return jsonify(error='Invalid local request.'), 403
 
@@ -162,14 +161,14 @@ def source_ocr_cache(job, index, path):
 
 @app.get('/')
 def home():
-    response = make_response(send_file(BASE/'static/index.html'))
-    response.set_cookie(COOKIE_NAME, TOKEN, httponly=True, samesite='Strict')
-    return response
+    return send_file(BASE/'static/index.html')
 
 
 @app.get('/static/<name>')
 def static(name):
-    if name not in ('app.js', 'style.css', 'repair.js', 'workspace.js', 'objects.js'):
+    if name not in ('ui.js', 'ui.css', 'favicon.svg', 'app.js', 'style.css', 'repair.js', 'workspace.js', 'objects.js', 'sections.js', 'simple.css', 'simple.js',
+                    'type-dotted-document.webp', 'type-dotted-map.webp', 'type-unofficial-copy.webp',
+                    'type-overlay.webp', 'type-huntington.webp', 'type-repeated-diagonal.webp', 'type-polarity.svg'):
         return '', 404
     return send_file(BASE/'static'/name)
 
@@ -226,6 +225,22 @@ def session():
     return jsonify(public(next(iter(JOBS.values()))) if JOBS else None)
 
 
+@app.get('/api/thumbnail/<identifier>/<int:index>')
+def page_thumbnail(identifier, index):
+    with LOCK:
+        job = job_for(identifier)
+        image_path(job, index)  # Validate the page before resolving a cache path.
+        path = job['dir']/f'{index}-thumbnail.jpg'
+        if not path.exists():
+            with Image.open(original(job, index)) as source:
+                preview = source.convert('RGB')
+                preview.thumbnail((180, 240), Image.Resampling.LANCZOS)
+                output = io.BytesIO()
+                preview.save(output, format='JPEG', quality=80)
+                path.write_bytes(output.getvalue())
+        return send_file(path, mimetype='image/jpeg')
+
+
 @app.get('/api/page/<identifier>/<int:index>/<kind>')
 def page(identifier, index, kind):
     with LOCK:
@@ -250,6 +265,10 @@ def settings(data):
     if not isinstance(pages, list) or len(pages)>300 or any(type(i) is not int or not 0<=i<300 for i in pages):
         raise ValueError('Invalid manual inversion page selection.')
     color = dict(fix_negative=bool(data.get('fix_negative', False)), polarity_pages=sorted(set(pages)))
+    if method == 'huntington_background':
+        return dict(method=method, mode='careful', strokes=[], use_reviewed=False,
+                    auto_restore=bool(data.get('auto_restore', False)), scan_inversion=False,
+                    fix_negative=False, polarity_pages=[])
     if method in (*dotted_scans.METHODS, *scan_patterns.METHODS):
         return dict(method=method, mode='lama' if method == 'repeated_diagonal_ai' else 'careful', strokes=[], use_reviewed=False,
                     auto_restore=False, scan_inversion=False, fix_negative=False, polarity_pages=[])
@@ -316,7 +335,30 @@ def process_page(job, index, options):
     if options['method'] in scan_patterns.METHODS:
         before = Image.open(original(job, index)).convert('RGB')
         cancelled = lambda: job['cancel']
-        if options['method'] == 'unofficial_copy':
+        if options['method'] == 'huntington_background':
+            try:
+                path = original(job, index)
+                ocr = local_ocr(path, source_ocr_cache(job, index, path))
+                ocr_note = ''
+            except ValueError:
+                ocr = None
+                ocr_note = ' Text-line reading unavailable; background-only pass retained.'
+            pixels, changed, details = scan_patterns.huntington_background(before, BASE/'assets', cancelled, ocr)
+            image = Image.fromarray(pixels)
+            for repair in job.get('automatic', {}).get(index, []) + job.get('repairs', {}).get(index, []):
+                image.paste(repair['patch'], repair['box'])
+            pixels = np.array(image)
+            changed = np.any(pixels != np.array(before), axis=2)
+            details.update(changed=int(changed.sum()), repairs=len(job.get('repairs', {}).get(index, [])),
+                           automatic=len(job.get('automatic', {}).get(index, [])),
+                           overlaps=[r for r in job.get('overlaps', {}).get(index, []) if not any(
+                               p['box'][0] <= (r['box'][0]+r['box'][2])/2 <= p['box'][2]
+                               and p['box'][1] <= (r['box'][1]+r['box'][3])/2 <= p['box'][3]
+                               for p in job.get('repairs', {}).get(index, [])+job.get('automatic', {}).get(index, []))])
+            details['matched'] = details['matched'] or bool(changed.any())
+            details['uncertain'] = bool(changed.any())
+            details['pattern_note'] += ocr_note
+        elif options['method'] == 'unofficial_copy':
             import gray_scans
             native = gray_scans.prepare(job['source'], index, job['dir'], BASE/'assets', cancelled)
             if native is not None:
@@ -350,6 +392,8 @@ def process_page(job, index, options):
             details = dict(scan_pattern=True, ai=True, confidence=None, matched=bool(selected.any()),
                 changed=int(changed.sum()), protected=int((~selected).sum()), selected_pixels=int(selected.sum()),
                 reviewed=False, uncertain=bool(selected.any()), reconstruction_unverified=bool(selected.any()), pattern_note=note)
+        elif options['method'] == 'repeated_document':
+            pixels, changed, details = scan_patterns.repeated_document(before, cancelled)
         else:
             pixels, changed, details = scan_patterns.repeated_diagonal(before, cancelled)
         Image.fromarray(pixels).save(image_path(job, index, True))
@@ -438,7 +482,7 @@ def process_page(job, index, options):
 
 def repair_job(identifier, data):
     job = job_for(identifier)
-    if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *scan_patterns.METHODS):
+    if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
         raise ValueError('Switch to image cleanup to repair words; overlay removal and black-page correction do not apply word repairs.')
     if job['state'] not in ('review', 'done'):
         raise ValueError('Process all pages first, then repair words in the cleaned preview.')
@@ -457,7 +501,7 @@ def preview_data(image):
 def local_ocr(path,cache):
     if not cache.exists():
         try:
-            subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-File',str(BASE/'assets/ocr-word.ps1'),
+            subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',str(BASE/'assets/ocr-word.ps1'),
                             '-InputPath',str(path),'-OutputPath',str(cache)],check=True,timeout=45,
                            capture_output=True,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         except (OSError,subprocess.SubprocessError):
@@ -484,7 +528,7 @@ def restoration_worker(job,clear=False):
                     with LOCK:
                         path=working_original(job,index)
                         image=Image.open(path).convert('RGB')
-                        if job['options']['method']=='preset':
+                        if job['options']['method'] in ('preset', 'huntington_background'):
                             mask,confidence=known_mask(image,BASE/'assets/huntington.npy',min_score=.35)
                         else:mask=paint_mask(image.size,job['options']['strokes'])
                         mask_path=job['dir']/f'{index}-restore-mask.npy'
@@ -504,6 +548,27 @@ def restoration_worker(job,clear=False):
                 if not mask.any():overlaps[index]=[];continue
                 fingerprint=page_fingerprint(current)[:16]
                 clean_ocr[index]=local_ocr(image_path(job,index,True),job['dir']/f'{index}-{fingerprint}-ocr.json')
+                if job['options']['method'] == 'huntington_background':
+                    locked = np.zeros(mask.shape, bool)
+                    for repair in job.get('repairs', {}).get(index, []) + previous.get(index, []):
+                        x,y,xx,yy = repair['box']; locked[y:yy,x:xx] = True
+                    _, candidates = huntington.exact_donors(np.array(source), np.array(current), mask,
+                        source_ocr[index], clean_ocr[index], index_words, locked, lambda: job['cancel'])
+                    for candidate in candidates:
+                        candidate = dict(candidate)
+                        candidate['patch'] = Image.fromarray(candidate['patch'])
+                        staged.setdefault(index, []).append(candidate)
+                        total += 1
+                    # Keep all uncertain readings together. OCR is a review hint,
+                    # never authority to invent a digit or a fully hidden letter.
+                    occupied = locked.copy()
+                    for candidate in candidates:
+                        x,y,xx,yy = candidate['box']; occupied[y:yy,x:xx] = True
+                    overlaps[index] = [dict(text=w['text'], box=auto_restore.word_box(w))
+                        for w in auto_restore.words(clean_ocr[index], mask.shape)
+                        if mask[w['y']:w['y']+w['h'],w['x']:w['x']+w['w']].any()
+                        and not occupied[w['y']:w['y']+w['h'],w['x']:w['x']+w['w']].any()]
+                    continue
                 correction=auto_restore.background_patch(np.array(current),mask,clean_ocr[index])
                 if len(correction['indices']):background.setdefault(index,[]).append(correction)
                 candidates,remaining=auto_restore.proposals(cv2.cvtColor(np.array(source),cv2.COLOR_RGB2GRAY),
@@ -540,8 +605,11 @@ def restoration_worker(job,clear=False):
                 result=process_page(job,index,job['options'])
                 job['results'][index]=result
             count=sum(len(v) for v in staged.values())
+            summary = (f'Restored {count} matching scanned words. Numbers and uncertain spellings remain for confirmation.'
+                       if job['options']['method']=='huntington_background' else
+                       f'Restored {count} words using scanned matches and source-matched font fits.')
             job.update(state='review',progress=job['count'],message=('Automatic word repairs removed. Manual repairs are retained.' if clear else
-                f'Restored {count} words using scanned matches and source-matched font fits. Review the listed overlap areas before saving.'))
+                summary+' Review the listed overlap areas before saving.'))
     except InterruptedError:
         job.update(state='review',message='Automatic restoration stopped. No new word repairs were applied.')
     except ValueError as error:
@@ -554,7 +622,7 @@ def restoration_worker(job,clear=False):
 def restore_all_words(identifier):
     with LOCK:
         job=job_for(identifier)
-        if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *scan_patterns.METHODS):
+        if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
             raise ValueError('Word restoration is disabled for overlay removal and black-page correction.')
         if job['state'] not in ('review','done'):
             raise ValueError('Process all pages before restoring words.')
@@ -597,7 +665,7 @@ def word_preview(identifier):
         if data.get('method')=='fit':
             text=word_repair.confirmed_text(data.get('text'))
             source=Image.open(working_original(job,index)).convert('RGB')
-            if job['options']['method']=='preset':
+            if job['options']['method'] in ('preset', 'huntington_background'):
                 mask,_=known_mask(source,BASE/'assets/huntington.npy',min_score=.35)
             else:mask=paint_mask(source.size,job['options']['strokes'])
             x,y,xx,yy=box
@@ -611,7 +679,7 @@ def word_preview(identifier):
         elif data.get('method')=='lama':
             word_repair.confirmed_text(data.get('text'))
             source=Image.open(working_original(job,index)).convert('RGB')
-            if job['options']['method']=='preset':
+            if job['options']['method'] in ('preset', 'huntington_background'):
                 mask,_=known_mask(source,BASE/'assets/huntington.npy',min_score=.35)
             else:mask=paint_mask(source.size,job['options']['strokes'])
             scope=np.zeros_like(mask);x,y,xx,yy=box;scope[y:yy,x:xx]=mask[y:yy,x:xx]
@@ -995,9 +1063,9 @@ def main():
         from release_selftest import run
         run(BASE, Path(sys.argv[sys.argv.index('--release-self-test')+1]))
         return
-    SERVER = make_server('127.0.0.1', 0, app, threaded=True, request_handler=QuietHandler)
+    SERVER = make_server('127.0.0.1', 5055, app, threaded=True, request_handler=QuietHandler)
     HOST = f'127.0.0.1:{SERVER.server_port}'
-    url = f'http://{HOST}/?key={TOKEN}'
+    url = f'http://{HOST}/'
     if '--test-info' in sys.argv:
         info = Path(sys.argv[sys.argv.index('--test-info')+1])
         info.write_text(json.dumps({'url': url}), encoding='utf-8')

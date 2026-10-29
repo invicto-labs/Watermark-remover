@@ -20,7 +20,7 @@ class RepeatedAITests(unittest.TestCase):
             canvas.drawImage(ImageReader(Image.fromarray(self.a)),0,0,600,900);canvas.showPage()
         canvas.save()
         self.client=app.app.test_client()
-        with self.client.get('/?key='+app.TOKEN):pass
+        with self.client.get('/'):pass
         self.headers={'X-ClearPage':'local'}
         response=self.client.post('/api/upload',data=self.source.read_bytes(),headers=self.headers)
         self.assertEqual(response.status_code,200,response.json)

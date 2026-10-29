@@ -13,7 +13,7 @@ class UpgradeTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         self.source=self.root/'source.pdf';self.target=self.root/'result.pdf'
-        self.client=app.app.test_client();self.client.get('/?key='+app.TOKEN)
+        self.client=app.app.test_client();self.client.get('/')
         self.headers={'X-ClearPage':'local'};self.jobs=[]
     def tearDown(self):
         for identifier in self.jobs:self.client.post('/api/clear/'+identifier,json={},headers=self.headers)

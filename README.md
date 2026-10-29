@@ -2,6 +2,67 @@
 
 A local Windows application for watermark cleanup in PDFs and scanned images.
 
+## React interface
+
+The main interface uses React 19, Tailwind CSS 4, and Lucide icons. It includes a
+responsive workspace, drag-and-drop PDF upload, eight visual cleanup presets,
+original/cleaned page comparison with zoom, page selection, and PDF export.
+All frontend assets are bundled locally; no CDN or external fonts are needed.
+
+To rebuild the interface after changing `frontend/`:
+
+```powershell
+npm ci
+npm run build
+.venv/Scripts/python.exe app.py
+```
+
+For development with React Fast Refresh and Tailwind hot reload, run `npm run dev`.
+This starts the local PDF backend and Vite together. Open
+`http://127.0.0.1:5173/` directly in any browser; no key, login, or launch link is required. Changes to
+`frontend/` appear immediately. The backend stays running so PDF sessions survive
+frontend edits; restart the command after changing Python code. Ctrl+C stops both
+servers. Set `CLEARPAGE_PYTHON` to use a different Python environment if needed.
+
+Vite writes `static/index.html`, `static/ui.js`, and `static/ui.css`. These built
+files are included by the existing Windows packaging configuration. End users
+do not need Node.js. The normal application opens at `http://127.0.0.1:5055/`.
+Documents remain in the current application session;
+the interface does not persist customer files in browser storage.
+
+## Huntington watermark - step by step
+
+Under **PDF type**, select **Huntington watermark - step by step** for CH search
+packages with the diagonal IMAGES / COPY PROPERTY Huntington County phrase.
+
+1. **Try first page** matches the known phrase and removes separable background ink.
+2. A second pass uses intact neighbouring words to establish text-line gaps. OCR
+   supplies positions, not replacement wording. If Windows OCR is unavailable,
+   background cleanup still works and reports the skipped refinement.
+3. The passes repeat against fixed source guards until nothing else qualifies.
+   **Huntington: cleanup steps and text review** reports each stage and its changed-pixel count. Convergence
+   means no further safe change was found; it does not mean every watermark is gone.
+4. **Clean all pages**, then use **Find matching words** in the Huntington panel to find matching scanned
+   words. Huntington donor matching requires agreeing source/preview readings,
+   matching visible strokes, and adequate surviving ink. It excludes digits and
+   proper names and changes only pixels inside the matched watermark corridor.
+5. Review the remaining OCR hints together, in groups of 40 across all pages. Click
+   one to see zoomed original/current crops. For a damaged word, confirm its exact wording,
+   preview a clean scanned occurrence or a fitted font, then apply the repair.
+   Accepted repairs survive another cleanup pass and can be undone.
+6. Select reviewed pages and create the PDF. Every original page remains included.
+
+This separate preset strictly matches the included Huntington phrase, clears
+watermark ink between horizontal text rows, and protects local faint text, small
+punctuation, vertical rules and tall graphic strokes. It avoids retaining a whole
+diagonal watermark word just because that word touches one document letter. The
+background stage requires no AI, OCR, painting, or replacement words. Unmatched pages remain unchanged; changed
+pages require selection. Export preserves every page and its geometry, adding
+sparse visual corrections using the existing image export path. Original scan
+objects remain underneath the corrections. This is partial visual cleanup:
+watermark ink merged with protected text may remain, and a 100% original or
+watermark-free result cannot be guaranteed from a flattened scan.
+
 ## Dotted scan cleanup
 
 Under **More options > PDF type**, choose **Dotted watermark · search package**
@@ -181,7 +242,7 @@ Recognition is deliberately narrow: Cook County requires both exact watermark ph
 
 Validation covered all 24 pages in the supplied 22-page Cook County and 2-page Harper examples. Every embedded image stream remained byte-for-byte identical. All output pages matched independently prepared scan-only renders. Six additional synthetic regression tests cover shared forms, unchecked pages, crop/rotation preservation, unknown templates, password handling, cancellation, preview/export and reconstruction guards. The previous 32 tests also pass. Company PDFs are not distributed in the application package.
 
-Sessions now use a separate local cookie per app instance so opening another version does not overwrite this version's login. Always start with the launcher to establish a session.
+Open the local app URL directly in any browser. No session key or login cookie is required.
 
 ## Text recovery (added in 1.6)
 
@@ -271,7 +332,7 @@ This is **visual cleanup, not secure redaction**. It adds visible corrections wh
 
 ## Privacy and lifecycle
 
-Document processing is local. There is no telemetry. The optional **Check for updates** button requests public release metadata from GitHub; it sends no documents, filenames or repair text. The app binds to a random port on `127.0.0.1`, requires a random local session cookie, and rejects cross-site mutations. This is a single-user application, not a network server.
+Document processing is local. There is no telemetry. The optional **Check for updates** button requests public release metadata from GitHub; it sends no documents, filenames or repair text. The app binds only to `127.0.0.1`, checks the connection address and host, and rejects cross-site requests. No session key or login cookie is required. This is a single-user application, not a network server.
 
 Working copies are stored in a randomly named `ClearPage-...` directory under your Windows temporary folder. **Remove this file** removes its open working copy. **Save & close** saves a checkpoint, removes the temporary session directory and stops the server. Checkpoints persist under `%LOCALAPPDATA%\ClearPage\saved-work`; named settings are in `cleanup-presets.json` beside that folder. Delete saved workspaces separately from the welcome screen. Downloaded PDFs remain where you save them. Abrupt termination can leave temporary files behind; these can be removed from `%TEMP%` once ClearPage is closed. Files are deleted normally, not securely erased. Keep company documents in an approved local folder. Developers can set `CLEARPAGE_DATA_DIR` to isolate test checkpoints and settings.
 

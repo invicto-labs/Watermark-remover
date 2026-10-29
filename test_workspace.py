@@ -22,7 +22,7 @@ class WorkspaceTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         self.old_root=app.WORK['data_root'];app.WORK['data_root']=self.root/'private'
         app.WORK.update(active=False,stop=False,zip_ready=False,saved_id='a'*24)
-        self.client=app.app.test_client();self.client.get('/?key='+app.TOKEN)
+        self.client=app.app.test_client();self.client.get('/')
         self.headers={'X-ClearPage':'local'}
 
     def tearDown(self):

@@ -2,8 +2,9 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.utils import ImageReader
 import app
@@ -33,7 +34,68 @@ def repeated_fixture():
     return a
 
 
+def huntington_fixture():
+    phrase = Image.fromarray(np.load(ASSETS/'huntington.npy', allow_pickle=False))
+    phrase = phrase.rotate(45, expand=True, fillcolor=255)
+    image = Image.new('RGB', (1192, 1684), 'white')
+    image.paste(phrase, (200, 200))
+    a = np.array(image)
+    # Dark and faint body strokes cross the known watermark.
+    a[600:604, 100:1050] = 0
+    a[670:674, 100:1050] = 210
+    a[80:84, 100:900] = 0
+    return a
+
+
 class ScanPatternTests(unittest.TestCase):
+    def test_huntington_removes_more_without_changing_known_text_pixels(self):
+        a = huntington_fixture()
+        lettering = Image.new('L', (1192, 1684), 255)
+        draw = ImageDraw.Draw(lettering)
+        font = ImageFont.load_default(size=18)
+        for y in range(350, 950, 36):
+            draw.text((140, y), 'Parcel 35-11-24-100.026.602-008; 22.07 feet. Recorded 11/13/2025.',
+                      fill=210 if y % 72 == 26 else 25, font=font)
+        text = np.array(lettering)
+        a = np.minimum(a, text[:, :, None])
+        image = Image.fromarray(a)
+        result, _, stats = patterns.huntington_background(image, ASSETS)
+        scope, _ = engine.known_mask(image, ASSETS/'huntington.npy', min_score=.55)
+        _, previous = engine.clean(image, scope, 'careful')
+        self.assertGreater(stats['changed'], previous['changed'])
+        np.testing.assert_array_equal(result[text < 255], a[text < 255])
+
+    def test_huntington_protects_vertical_rules_and_signature_strokes(self):
+        a = huntington_fixture()
+        a[300:1000, 480:484] = 90
+        a[400:550, 600:603] = 200
+        result, _, _ = patterns.huntington_background(Image.fromarray(a), ASSETS)
+        np.testing.assert_array_equal(result[300:1000, 480:484], a[300:1000, 480:484])
+        np.testing.assert_array_equal(result[400:550, 600:603], a[400:550, 600:603])
+
+    def test_huntington_background_preserves_body_strokes_and_outside_scope(self):
+        a = huntington_fixture()
+        image = Image.fromarray(a)
+        result, changed, stats = patterns.huntington_background(image, ASSETS)
+        self.assertTrue(stats['matched'])
+        self.assertTrue(stats['partial'])
+        self.assertTrue(stats['uncertain'])
+        self.assertGreater(stats['changed'], 1000)
+        scope, _ = engine.known_mask(image, ASSETS/'huntington.npy', min_score=.55)
+        self.assertFalse(changed[~scope].any())
+        np.testing.assert_array_equal(result[600:604], a[600:604])
+        np.testing.assert_array_equal(result[670:674], a[670:674])
+        np.testing.assert_array_equal(changed, np.any(result != a, axis=2))
+
+    def test_huntington_background_rejects_other_patterns_and_cancellation(self):
+        for a in (np.full((1684,1192,3),255,'uint8'), repeated_fixture()):
+            result, changed, stats = patterns.huntington_background(Image.fromarray(a), ASSETS)
+            self.assertFalse(stats['matched'])
+            self.assertFalse(changed.any())
+            np.testing.assert_array_equal(result, a)
+        with self.assertRaises(InterruptedError):
+            patterns.huntington_background(Image.fromarray(huntington_fixture()), ASSETS, lambda: True)
+
     def test_gray_layouts_preserve_dark_strokes_and_outside_template(self):
         for height in patterns.GRAY_LAYOUTS:
             a=gray_fixture(height)
@@ -90,10 +152,10 @@ class ScanPatternTests(unittest.TestCase):
 
     def test_application_preview_batch_selective_export_and_repair_guard(self):
         client=app.app.test_client()
-        with client.get('/?key='+app.TOKEN):pass
+        with client.get('/'):pass
         headers={'X-ClearPage':'local'}
         with tempfile.TemporaryDirectory() as directory:
-            for method,a in [('unofficial_copy',gray_fixture()),('repeated_diagonal',repeated_fixture())]:
+            for method,a in [('huntington_background',huntington_fixture()),('unofficial_copy',gray_fixture()),('repeated_diagonal',repeated_fixture())]:
                 source=Path(directory)/(method+'.pdf')
                 h,w=a.shape[:2]
                 canvas=Canvas(str(source),pagesize=(w/2,h/2))
@@ -104,14 +166,17 @@ class ScanPatternTests(unittest.TestCase):
                 self.assertEqual(response.status_code,200,response.json)
                 key=response.json['id'];job=app.JOBS[key]
                 try:
-                    response=client.post('/api/preview/'+key,json=dict(method=method,page=0),headers=headers)
+                    with patch.object(app, 'local_ocr', return_value={'lines': []}):
+                        response=client.post('/api/preview/'+key,json=dict(method=method,page=0),headers=headers)
                     self.assertEqual(response.status_code,200,response.json)
                     self.assertTrue(response.json['matched'])
                     options=app.settings(dict(method=method,mode='lama',auto_restore=True,scan_inversion=True,fix_negative=True,use_reviewed=True))
-                    self.assertFalse(options['auto_restore']);self.assertFalse(options['scan_inversion'])
+                    self.assertEqual(options['auto_restore'], method == 'huntington_background');self.assertFalse(options['scan_inversion'])
                     self.assertFalse(options['fix_negative']);self.assertFalse(options['use_reviewed'])
+                    options['auto_restore'] = False
                     job.update(options=options,results=[],cancel=False)
-                    app.batch(job,options)
+                    with patch.object(app, 'local_ocr', return_value={'lines': []}):
+                        app.batch(job,options)
                     self.assertEqual(job['state'],'review',job['message'])
                     self.assertTrue(all(r['uncertain'] for r in job['results']))
                     app.export_worker(job,[0])
@@ -119,7 +184,10 @@ class ScanPatternTests(unittest.TestCase):
                     for i in range(2):
                         expected=Image.open(app.image_path(job,0,True)) if i==0 else engine.render_page(source,1)
                         self.assertTrue(np.array_equal(engine.render_page(job['dir']/'cleaned.pdf',i),expected))
-                    with self.assertRaises(ValueError):app.repair_job(key,{})
+                    if method == 'huntington_background':
+                        self.assertEqual(app.repair_job(key, {'page': 0})[1], 0)
+                    else:
+                        with self.assertRaises(ValueError):app.repair_job(key,{})
                     self.assertEqual(source.read_bytes(),original_bytes)
                 finally:
                     job['state']='ready';client.post('/api/clear/'+key,json={},headers=headers)

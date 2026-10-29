@@ -59,7 +59,7 @@ class DottedScanTests(unittest.TestCase):
         self.source = self.root/'input.pdf'
         self.target = self.root/'output.pdf'
         self.client = app.app.test_client()
-        with self.client.get('/?key='+app.TOKEN): pass
+        with self.client.get('/'): pass
         self.headers = {'X-ClearPage': 'local'}
         self.ids = []
 

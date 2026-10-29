@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from vendor.purescan_core import invert_multiply
 
-METHODS = ('unofficial_copy', 'repeated_diagonal', 'repeated_diagonal_ai')
+METHODS = ('huntington_background', 'unofficial_copy', 'repeated_diagonal', 'repeated_diagonal_ai', 'repeated_document')
 MAX_PIXELS = 12_000_000
 GRAY_LAYOUTS = (1019, 1032, 1994, 2019, 2024, 2029, 2536, 2538)
 
@@ -14,6 +14,69 @@ def unchanged(a, note):
     return a.copy(), np.zeros(a.shape[:2], bool), dict(
         scan_pattern=True, confidence=None, matched=False, changed=0,
         protected=0, reviewed=False, uncertain=False, pattern_note=note)
+
+
+def huntington_background(image, assets, cancelled=lambda: False, ocr=None):
+    """Explicit Huntington background preset; never reconstruct covered words.
+
+    Match the supplied phrase rather than selecting an arbitrary diagonal band.
+    Protect horizontal document ink locally, rather than preserving the entire
+    watermark component when it touches one letter. Tall non-text strokes and
+    isolated punctuation remain protected. No lettering is generated.
+    """
+    from engine import known_mask
+    a = np.array(image.convert('RGB'))
+    if image.width * image.height > MAX_PIXELS:
+        raise ValueError('This scan is too large for Huntington background cleanup.')
+    if cancelled():
+        raise InterruptedError('Cancelled')
+    mask, score = known_mask(image, Path(assets)/'huntington.npy', min_score=.55)
+    if not mask.any():
+        return unchanged(a, 'No confident Huntington background pattern match. Original page retained.')
+    protected = huntington_ink_protection(a, mask)
+    import huntington
+    result, passes = huntington.refine(a, a, mask, protected, ocr=ocr, cancelled=cancelled)
+    if cancelled():
+        raise InterruptedError('Cancelled')
+    changed = np.any(result != a, axis=2)
+    return result, changed, dict(
+        scan_pattern=True, confidence=round(score, 3), matched=True,
+        changed=int(changed.sum()), protected=int((mask & protected).sum()),
+        reviewed=False, uncertain=bool(changed.any()), partial=True, **passes,
+        pattern_note='Huntington passes finished: background and verified text-line gaps cleaned until no further pixels qualified. Remaining intersections need text review; use Word repair tools to preview and confirm an intact scanned word or exact wording. Repeating removal cannot recover opaque, hidden letters.')
+
+
+def huntington_ink_protection(a, mask):
+    """Local ink guards; the diagonal component itself cannot guard its gaps."""
+    gray = a.min(axis=2)
+    exclusion = cv2.dilate(mask.astype('uint8'), np.ones((3, 3), 'uint8')) > 0
+    # Faint source ink outside the matched glyphs anchors text rows. Closing
+    # bridges the narrow diagonal cut; margins retain descenders and word ends.
+    anchors = ((gray < 225) & ~exclusion).astype('uint8')
+    bounds = cv2.morphologyEx(anchors, cv2.MORPH_CLOSE, np.ones((1, 61), 'uint8'))
+    bounds = cv2.dilate(bounds, np.ones((5, 21), 'uint8')) > 0
+    support = cv2.boxFilter(anchors.astype('float32'), -1, (121, 3), normalize=True)
+    rows = bounds & (support > .04)
+    protected = cv2.dilate(rows.astype('uint8'), np.ones((5, 5), 'uint8')) > 0
+
+    ink = (gray < 225).astype('uint8')
+    _, labels, boxes, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    small = (boxes[:, 4] <= 12) & (boxes[:, 2] <= 5) & (boxes[:, 3] <= 6)
+    small[0] = False
+    protected |= cv2.dilate(small[labels].astype('uint8'), np.ones((3, 3), 'uint8')) > 0
+    # Retain signatures, borders, map strokes and other tall source components.
+    # Measure the fragments outside the mask so watermark letters alone cannot
+    # make every intersecting printed word into one protected diagonal string.
+    _, anchor_labels, anchor_boxes, _ = cv2.connectedComponentsWithStats(anchors, connectivity=8)
+    tall = (anchor_boxes[:, 3] > 28) & (anchor_boxes[:, 4] > 40)
+    tall[0] = False
+    touching = np.unique(labels[tall[anchor_labels]])
+    touching = touching[touching != 0]
+    if touching.size:
+        protected |= cv2.dilate(np.isin(labels, touching).astype('uint8'), np.ones((3, 3), 'uint8')) > 0
+    vertical = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((19, 1), 'uint8'))
+    protected |= cv2.dilate(vertical, np.ones((3, 3), 'uint8')) > 0
+    return protected
 
 
 def unofficial_copy(image, assets, cancelled=lambda: False):
@@ -160,3 +223,60 @@ def repeated_diagonal(image, cancelled=lambda: False):
         changed=int(changed.sum()), protected=int((protected & band & (gray<220)).sum()),
         reviewed=False, uncertain=True, partial=True, protected_box=[x0,y0,x1,y1],
         pattern_note='Partial cleanup: diagonal lettering removed in blank areas. The entire document-content area is preserved exactly, including overlapping watermark. This is not a fully clean copy.')
+
+
+def repeated_document(image, cancelled=lambda: False):
+    """Clean repeated diagonal glyphs between locally protected document rows.
+
+    No inpainting or invented lettering. Only isolated components fully inside
+    a detected band can be removed; components touching source ink stay intact.
+    """
+    a, gray, labels, stats, band, note = _repeated_detection(image, cancelled)
+    if band is None:
+        return unchanged(a, note)
+    h, w = gray.shape
+    scale = w / 1200
+    def px(n):
+        return max(1, round(n * scale))
+
+    # Horizontal groups of actual glyphs anchor individual text rows. A whole
+    # body rectangle would retain all the watermarks between those rows too.
+    ink = (gray < 220).astype('uint8')
+    horizontal = cv2.morphologyEx(ink, cv2.MORPH_CLOSE,
+                                 np.ones((1, px(27)), 'uint8'))
+    _, groups, boxes, _ = cv2.connectedComponentsWithStats(horizontal, connectivity=8)
+    rows = ((boxes[:, 2] >= px(65)) & (boxes[:, 3] >= px(5)) &
+            (boxes[:, 3] <= px(36)) & (boxes[:, 2] > boxes[:, 3] * 3))
+    rows[0] = False
+    if rows.sum() < 3:
+        return unchanged(a, 'Could not establish document text rows. Original retained.')
+    protected = cv2.dilate(rows[groups].astype('uint8'),
+                           np.ones((px(7), px(9)), 'uint8')) > 0
+    # Large connected strokes include signatures, seals, rules and barcodes.
+    structural = ((stats[:, 2] > px(40)) | (stats[:, 3] > px(32)) |
+                  (stats[:, 4] > px(400) * scale))
+    structural[0] = False
+    protected |= cv2.dilate(structural[labels].astype('uint8'),
+                            np.ones((px(5), px(5)), 'uint8')) > 0
+    # Retain complete connected components whenever any part is protected or
+    # outside the repeated bands. This also protects text/watermark crossings.
+    eligible = ((stats[:, 2] <= px(32)) & (stats[:, 3] <= px(32)) &
+                (stats[:, 4] <= 400 * scale * scale))
+    eligible[np.unique(labels[protected | ~band])] = False
+    eligible[0] = False
+    remove = eligible[labels]
+    if np.count_nonzero(remove) < 300 * scale * scale:
+        return unchanged(a, 'No isolated repeated lettering could be separated from document ink. Original retained.')
+    # JPEG halos are pale and confined to one pixel around selected glyphs.
+    edge = cv2.dilate(remove.astype('uint8'), np.ones((3, 3), 'uint8')) > 0
+    remove |= edge & (gray >= 220) & ~protected & band
+    if cancelled():
+        raise InterruptedError('Cancelled')
+    result = a.copy()
+    result[remove] = 255
+    changed = np.any(result != a, axis=2)
+    return result, changed, dict(
+        scan_pattern=True, confidence=None, matched=True, partial=True,
+        changed=int(changed.sum()), protected=int((protected & band & (gray < 220)).sum()),
+        reviewed=False, uncertain=True,
+        pattern_note='Partial cleanup: repeated diagonal lettering removed from margins and gaps between document rows. Text rows and connected signature, seal and barcode strokes are protected. Marks touching protected ink remain; inspect names, numbers and signatures before export.')

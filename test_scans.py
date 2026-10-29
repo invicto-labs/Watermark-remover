@@ -19,7 +19,7 @@ class ScanTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         self.client=app.app.test_client()
-        with self.client.get('/?key='+app.TOKEN):pass
+        with self.client.get('/'):pass
         self.headers={'X-ClearPage':'local'}
 
     def tearDown(self):

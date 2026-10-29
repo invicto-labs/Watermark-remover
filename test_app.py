@@ -319,7 +319,6 @@ class APITests(unittest.TestCase):
         self.client = application.app.test_client()
         self.headers = {'X-ClearPage': 'local'}
         application.PROFILE_ROOT = Path(self.temp.name)/'profiles'
-        self.client.get('/?key='+application.TOKEN).close()
 
     def tearDown(self):
         for identifier, job in list(application.JOBS.items()):
@@ -328,14 +327,36 @@ class APITests(unittest.TestCase):
             self.client.post('/api/clear/'+identifier, json={}, headers=self.headers)
         self.temp.cleanup()
 
-    def test_local_auth_and_input_validation(self):
-        outsider = application.app.test_client()
-        self.assertEqual(outsider.get('/').status_code, 403)
+    def test_local_access_without_key_and_input_validation(self):
+        fresh_browser = application.app.test_client(use_cookies=False)
+        with fresh_browser.get('/') as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn('Set-Cookie', response.headers)
+        self.assertEqual(fresh_browser.get('/api/session').status_code, 200)
+        self.assertEqual(fresh_browser.get('/', environ_overrides={'REMOTE_ADDR': '192.0.2.1'}).status_code, 403)
+        self.assertEqual(fresh_browser.get('/api/session', headers={'Sec-Fetch-Site': 'cross-site'}).status_code, 403)
+        with patch.object(application, 'HOST', '127.0.0.1:5055'):
+            self.assertEqual(fresh_browser.get('/api/session', headers={'Host': 'attacker.example'}).status_code, 403)
         self.assertEqual(self.client.post('/api/upload', data=b'%PDF').status_code, 403)
         response = self.client.post('/api/upload', data=b'not a PDF', headers=self.headers)
         self.assertEqual(response.status_code, 400)
         headers = dict(self.headers, Origin='https://example.com')
         self.assertEqual(self.client.post('/api/upload', data=b'%PDF', headers=headers).status_code, 403)
+
+    def test_react_assets_use_local_routes_without_cookies(self):
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'/static/ui.js', response.data)
+        self.assertIn(b'/static/ui.css', response.data)
+        response.close()
+        fresh_browser = application.app.test_client(use_cookies=False)
+        for asset, content_type in [('ui.js', 'javascript'), ('ui.css', 'text/css')]:
+            response = fresh_browser.get('/static/' + asset)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(content_type, response.content_type)
+            self.assertIn("script-src 'self'", response.headers['Content-Security-Policy'])
+            response.close()
+        self.assertEqual(self.client.get('/static/package.json').status_code, 404)
 
     def test_purescan_preview_learning_and_fallback(self):
         identifier=self.client.post('/api/upload',data=self.pdf.read_bytes(),headers=self.headers).json['id']

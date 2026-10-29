@@ -72,7 +72,7 @@ class QualityTests(unittest.TestCase):
 
     def test_api_batch_export_reference_and_mode_guards(self):
         client=app.app.test_client()
-        with client.get('/?key='+app.TOKEN): pass
+        with client.get('/'): pass
         headers={'X-ClearPage':'local'}
         upload=client.post('/api/upload',data=pdf([text_page(True),text_page()]),headers=headers)
         self.assertEqual(upload.status_code,200)

@@ -6,7 +6,7 @@ const baseSetBusy=setBusy, baseInvalidate=invalidate, baseChangedReview=changedR
 setBusy=function(value){baseSetBusy(value);syncWorkspace();};
 invalidate=function(){draftDirty=true;fileConfirmed=false;reviewedPages.clear();baseInvalidate();renderReviewTools();};
 changedReview=function(){fileConfirmed=false;reviewedPages.delete(page);baseChangedReview();renderReviewTools();};
-poll=async function(){await basePoll();if(!busy&&job){draftDirty=false;await refreshQueue();renderReviewTools();}};
+poll=async function(){const previousState=job?.state;await basePoll();if(!busy&&job){draftDirty=false;await refreshQueue();renderReviewTools();if(typeof navigateWorkspaceSection==='function'&&busyStates.includes(previousState)&&['review','done'].includes(job.state))navigateWorkspaceSection(job.state==='done'?'review':'compareSection');}};
 
 function settingsOnScreen(value){
  const o=value||{};
@@ -54,7 +54,8 @@ function renderQueue(){
   const title=document.createElement('strong');title.textContent=item.name;
   const status=document.createElement('span');status.textContent=item.ui?.confirmed?'Review finished':({ready:'Ready to clean',review:'Needs review',done:'PDF ready',processing:'Cleaning…',restoring:'Restoring words…',error:'Needs another try',cancelled:'Stopped',exporting:'Creating PDF…'}[item.state]||item.state);
   button.append(title,status);button.disabled=busy||queueRunning||changingFile;
-  button.onclick=async()=>{if(busy||queueRunning||changingFile)return;changingFile=true;syncWorkspace();try{await flushView();await activateJob(await api('/api/job/'+item.id));}catch(e){notice(e.message,true);}finally{changingFile=false;syncWorkspace();}};
+  const action=document.createElement('span');action.className='queue-open';action.textContent=['review','done'].includes(item.state)?'Open review →':'Open cleanup →';button.append(action);
+  button.onclick=async()=>{if(busy||queueRunning||changingFile)return;changingFile=true;syncWorkspace();try{await flushView();await activateJob(await api('/api/job/'+item.id));if(typeof navigateWorkspaceSection==='function')navigateWorkspaceSection(['review','done'].includes(job.state)?'compareSection':'typeSection');}catch(e){notice(e.message,true);}finally{changingFile=false;syncWorkspace();}};
   $('queueList').append(button);
  }
  syncWorkspace();
@@ -121,27 +122,53 @@ function pendingReview(){return results.filter(r=>r.changed&&!reviewedPages.has(
 function renderReviewTools(){
  $('reviewTools').hidden=!results.length||!['review','done'].includes(job?.state);
  const remaining=pendingReview();$('reviewCount').textContent=fileConfirmed?'File review finished':`${remaining.length} changed pages to check`;
- $('markReviewed').textContent=reviewedPages.has(page)?'Page reviewed ✓':'Mark page reviewed';
+ $('markReviewed').textContent=reviewedPages.has(page)?`Page ${page+1} reviewed ✓`:`Mark page ${page+1} reviewed`;
  $('markReviewed').disabled=busy||queueRunning||!results.some(r=>r.page===page&&r.changed);
  $('finishReview').disabled=busy||queueRunning||remaining.length>0||!results.length;
  $('nextReview').disabled=busy||queueRunning||!remaining.length;
 }
 renderPageList=function(){
- syncSimpleView();const container=$('pageList');container.replaceChildren();
- const shown=$('needsReviewOnly').checked?pendingReview():results;
+ syncSimpleView();const container=$('pageList');
+ if(container.dataset.job!==job?.id){container.replaceChildren();container.dataset.job=job?.id||'';}
+ const existing=new Map([...container.children].map(card=>[Number(card.dataset.page),card]));
+ const reviewCandidates=$('needsReviewOnly').checked?pendingReview():results;
+ const shown=$('changedPagesOnly').checked?reviewCandidates.filter(result=>result.changed):reviewCandidates;
+ const cards=[];
  for(const result of shown){
-  const chip=document.createElement('div');chip.className='page-chip'+(page===result.page?' current':'')+(result.uncertain&&!reviewedPages.has(result.page)?' attention':'');
-  const check=document.createElement('input');check.type='checkbox';check.checked=keep.has(result.page);check.disabled=busy||queueRunning||!result.changed;
-  check.setAttribute('aria-label',`Use cleaned page ${result.page+1}`);
-  check.onchange=()=>{check.checked?keep.add(result.page):keep.delete(result.page);fileConfirmed=false;baseChangedReview();renderReviewTools();};
-  const button=document.createElement('button');button.textContent=`${result.page+1} · ${!result.changed?'Unchanged':reviewedPages.has(result.page)?'Reviewed':result.uncertain?'Check text':'To review'}`;
-  button.disabled=busy||queueRunning;button.onclick=()=>{page=result.page;loadPage();};chip.append(check,button);container.append(chip);
+  let card=existing.get(result.page);
+  if(!card){
+   card=document.createElement('article');card.dataset.page=result.page;
+   const button=document.createElement('button');button.type='button';button.className='thumbnail-open';
+   const frame=document.createElement('span');frame.className='thumbnail-frame';
+   const fallback=document.createElement('span');fallback.className='thumbnail-fallback';fallback.textContent='Preview unavailable';fallback.hidden=true;
+   const image=document.createElement('img');image.alt=`Original page ${result.page+1}`;image.loading='lazy';image.decoding='async';image.width=180;image.height=240;
+   image.onerror=()=>{image.hidden=true;fallback.hidden=false;};
+   image.src=`/api/thumbnail/${job.id}/${result.page}`;
+   const number=document.createElement('strong');number.className='thumbnail-number';number.textContent=`Page ${result.page+1}`;
+   const state=document.createElement('span');state.className='thumbnail-status';
+   frame.append(image,fallback);button.append(frame,number,state);
+   button.onclick=async()=>{if(busy||queueRunning)return;page=result.page;await loadPage();if(typeof navigateWorkspaceSection==='function')navigateWorkspaceSection('compareSection');};
+   const label=document.createElement('label');label.className='thumbnail-keep';
+   const check=document.createElement('input');check.type='checkbox';check.setAttribute('aria-label',`Use cleaned page ${result.page+1}`);
+   check.onchange=()=>{check.checked?keep.add(result.page):keep.delete(result.page);fileConfirmed=false;baseChangedReview();renderReviewTools();};
+   label.append(check,document.createTextNode('Use cleaned'));card.append(button,label);
+  }
+  const status=!result.changed?'Unchanged':reviewedPages.has(result.page)?'Reviewed':result.uncertain?'Check text':'To review';
+  card.className='page-thumbnail'+(page===result.page?' current':'')+(result.uncertain&&!reviewedPages.has(result.page)?' attention':'');
+  const button=card.querySelector('.thumbnail-open');button.disabled=busy||queueRunning;button.setAttribute('aria-label',`Open page ${result.page+1} · ${status}`);
+  if(page===result.page)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
+  card.querySelector('.thumbnail-status').textContent=status;
+  const check=card.querySelector('input');check.checked=keep.has(result.page);check.disabled=busy||queueRunning||!result.changed;
+  cards.push(card);
  }
+ if(cards.length!==container.children.length||cards.some((card,index)=>container.children[index]!==card))container.replaceChildren(...cards);
+ if(!cards.length){const message=document.createElement('p');message.className='thumbnail-empty';message.textContent=$('needsReviewOnly').checked?'All changed pages have been reviewed.':$('changedPagesOnly').checked?'No changed pages in this file.':'Clean this file to see its pages here.';container.append(message);}
  renderReviewTools();
 };
 $('markReviewed').onclick=()=>{reviewedPages.add(page);fileConfirmed=false;renderPageList();};
-$('nextReview').onclick=()=>{const list=pendingReview();if(list.length){page=(list.find(r=>r.page>page)||list[0]).page;loadPage();}};
+$('nextReview').onclick=async()=>{const list=pendingReview();if(list.length){page=(list.find(r=>r.page>page)||list[0]).page;await loadPage();if(typeof navigateWorkspaceSection==='function')navigateWorkspaceSection('compareSection');}};
 $('needsReviewOnly').onchange=renderPageList;
+$('changedPagesOnly').onchange=renderPageList;
 $('finishReview').onclick=async()=>{if(pendingReview().length)return;try{fileConfirmed=true;await flushView();await refreshQueue();renderReviewTools();notice('File review finished. It can now be included in the ZIP.');}catch(e){fileConfirmed=false;notice(e.message,true);}};
 $('showChanges').onchange=loadPage;
 const scrollPanels=[...document.querySelectorAll('.paper-scroll')];let syncing=false;
