@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, CheckCheck, ChevronLeft, ChevronRight, CircleHelp, FileCheck2, FileText, Files, FolderOpen, Layers3, LoaderCircle, LockKeyhole, Maximize2, Plus, ScanLine, ShieldCheck, Sparkles, Upload, WandSparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, CircleHelp, FileText, Layers3, LoaderCircle, LockKeyhole, Maximize2, Plus, ScanLine, ShieldCheck, Upload, WandSparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
 import './styles.css';
 import HuntingtonReview from './HuntingtonReview';
 import CleanupProgress from './CleanupProgress';
+import PdfReview from './PdfReview';
 
 const presets = [
   { id: 'dotted_document', title: 'Dotted document', description: 'Diagonal dotted lettering on scanned documents.', image: 'dotted-document', tag: 'Documents' },
@@ -60,6 +61,16 @@ function HelpDialog({ onClose }) {
   </section></div>;
 }
 
+function PdfTypeDialog({ item, selected, onSelect, onClose }) {
+  const dialogRef = useRef(null);
+  useEffect(() => { const previous = document.activeElement; dialogRef.current?.showModal(); return () => previous?.focus(); }, []);
+  return <dialog ref={dialogRef} className="pdf-type-dialog" aria-labelledby="pdf-type-title" onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div className="pdf-type-dialog-content">
+    <button autoFocus className="icon-button close-help" aria-label="Close PDF type" onClick={onClose}><X size={20} /></button>
+    <div className="pdf-type-example"><img src={`/static/type-${item.image}.${item.image === 'polarity' ? 'svg' : 'webp'}`} alt={`${item.title} example`} /></div>
+    <div className="pdf-type-details"><span className="eyebrow">{item.tag}</span><h2 id="pdf-type-title">{item.title}</h2><p>{item.description}</p><Button onClick={() => { onSelect(item.id); onClose(); }}>{selected ? <Check size={17} /> : <ArrowRight size={17} />}{selected ? 'Keep this PDF type' : 'Use this PDF type'}</Button></div>
+  </div></dialog>;
+}
+
 export default function App() {
   const [view, setView] = useState('upload');
   const [job, setJob] = useState(null);
@@ -69,6 +80,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [help, setHelp] = useState(false);
+  const [pdfType, setPdfType] = useState(null);
   const [page, setPage] = useState(0);
   const [revision, setRevision] = useState(0);
   const [previewed, setPreviewed] = useState(new Set());
@@ -83,13 +95,13 @@ export default function App() {
   const fileRef = useRef(null);
   const uploadLock = useRef(false);
   const titleRef = useRef(null);
-  const stage = job && view === 'workspace' ? (results.length ? 2 : 1) : 0;
+  const stage = job && view === 'review' ? 2 : job && view === 'workspace' ? 1 : 0;
 
   useEffect(() => {
-    const handleKey = event => { if (event.key === 'Escape') { if (help) setHelp(false); else if (!busy && view !== 'upload') setView('upload'); } };
+    const handleKey = event => { if (event.key === 'Escape') { if (pdfType) return; else if (help) setHelp(false); else if (!busy && view !== 'upload') setView(view === 'review' ? 'workspace' : 'upload'); } };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [help, busy, view]);
+  }, [help, pdfType, busy, view]);
   useEffect(() => { titleRef.current?.focus({ preventScroll: true }); }, [view]);
   useEffect(() => {
     // A refresh or hot reload must not hide a cleanup already running locally.
@@ -197,26 +209,20 @@ export default function App() {
   function navigate(next) { if (!busy) { setView(next); setError(''); } }
   const comparing = previewed.has(page);
 
-  return <div className="app-shell">
-    <aside className="sidebar">
-      <a className="brand-link" href="/" onClick={event => { event.preventDefault(); navigate('upload'); }} aria-label="ClearPage home"><Brand /></a>
-      <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav aria-label="Main navigation" className="main-nav">
-        <button disabled={busy} className={view === 'upload' || view === 'workspace' ? 'nav-item active' : 'nav-item'} onClick={() => navigate(job ? 'workspace' : 'upload')}><WandSparkles size={19} />PDF cleanup<span className="nav-active-dot" /></button>
-        <button disabled={busy} className={view === 'documents' ? 'nav-item active' : 'nav-item'} onClick={() => navigate('documents')}><Files size={19} />My document{job && <span className="nav-count">1</span>}</button>
-      </nav>
-      <div className="sidebar-tip"><span className="tip-icon"><Sparkles size={20} /></span><h3>A fresh start for your files.</h3><p>A little less noise.<br />A lot more clarity.</p><span className="tip-line" /></div>
-      <div className="sidebar-bottom"><div className="local-card"><span className="local-indicator" /><div><strong>Private by design</strong><span>Processed on your computer</span></div><LockKeyhole size={15} /></div><button className="nav-item help-link" onClick={() => setHelp(true)}><CircleHelp size={18} />Help & quick guide<ArrowRight size={15} /></button><div className="sidebar-footer">MADE FOR A CLEARER VIEW <span>↗</span></div></div>
-    </aside>
-
+  return <div className={`app-shell ${view === 'review' ? 'review-mode' : view === 'workspace' ? 'workspace-mode' : ''}`}>
     <div className="main-shell">
-      <header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={14} /><strong>{view === 'documents' ? 'My document' : 'PDF cleanup'}</strong></div><div className="topbar-right"><span className="local-pill"><span />Local workspace</span><span className="avatar" aria-label="Personal workspace">CP</span></div></header>
-      <main className={view === 'workspace' ? 'main-content workspace-content' : 'main-content'}>
-        {view !== 'documents' && <div className="stepper" aria-label="Cleanup progress">{steps.map((label, index) => <React.Fragment key={label}>{index > 0 && <span className={`step-line ${stage >= index ? 'complete' : ''}`} />}<span className={`step ${stage === index ? 'current' : stage > index ? 'done' : ''}`} aria-current={stage === index ? 'step' : undefined}><b>{stage > index ? <Check size={12} /> : `0${index + 1}`}</b><span>{label}</span></span></React.Fragment>)}</div>}
+      <header className="navbar">
+        <a className="brand-link" href="/" onClick={event => { event.preventDefault(); navigate('upload'); }} aria-label="ClearPage home"><Brand /></a>
+        <nav aria-label="Main navigation" className="navbar-links">
+          <button disabled={busy} className="navbar-link active" aria-current="page" onClick={() => navigate(job ? (results.length ? 'review' : 'workspace') : 'upload')}><WandSparkles size={17} /><span>PDF cleanup</span></button>
+        </nav>
+        <div className="navbar-actions"><span className="navbar-private"><LockKeyhole size={14} />Processed locally</span><button className="navbar-help" onClick={() => setHelp(true)}><CircleHelp size={18} /><span>Help</span></button></div>
+      </header>
+      <main className={view === 'review' ? 'main-content review-content' : view === 'workspace' ? 'main-content workspace-content' : 'main-content'}>
+        {view !== 'review' && <div className="stepper" aria-label="Cleanup progress">{steps.map((label, index) => <React.Fragment key={label}>{index > 0 && <span className={`step-line ${stage >= index ? 'complete' : ''}`} />}<span className={`step ${stage === index ? 'current' : stage > index ? 'done' : ''}`} aria-current={stage === index ? 'step' : undefined}><b>{stage > index ? <Check size={12} /> : `0${index + 1}`}</b><span>{label}</span></span></React.Fragment>)}</div>}
         <input ref={fileRef} type="file" accept="application/pdf,.pdf" aria-label="Choose a PDF" className="sr-only" disabled={busy} onChange={event => upload(event.target.files?.[0])} />
 
         {view === 'upload' && <>
-          <div className="page-heading"><div><span className="eyebrow"><span />A CLEAN SLATE STARTS HERE</span><h1 ref={titleRef} tabIndex={-1}>Your document.<br /><span>Just a little clearer.</span></h1><p>Remove the distractions. Keep what matters.<br className="mobile-break" /> Give your PDFs a fresh start, right on your computer.</p></div><div className="heading-badge"><ShieldCheck size={15} />100% local. Always private.</div></div>
           <div className="upload-layout"><section className="upload-card"><div className="card-topline"><span><Upload size={16} />ADD YOUR DOCUMENT</span><span className="file-type">.PDF</span></div>
             <button disabled={busy} className={`dropzone ${dragging ? 'dragging' : ''}`} onClick={() => fileRef.current?.click()} onDragOver={event => { event.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); if (event.dataTransfer.files.length > 1) setError('Please add one PDF at a time.'); else upload(event.dataTransfer.files[0]); }}>
               <span className="upload-art"><span className="upload-art-back" /><span className="upload-art-front"><FileText size={37} strokeWidth={1.1} /></span><span className="upload-art-plus"><Plus size={16} /></span></span>
@@ -225,20 +231,14 @@ export default function App() {
           </section>
           </div>
           {(error || busy) && <div role={error ? 'alert' : 'status'} className={`status-banner ${error ? 'error' : ''}`}>{busy && <LoaderCircle size={17} className="animate-spin" />}{error || message}</div>}
-          <section className="preset-section"><div className="section-heading"><div><span className="eyebrow">A LITTLE HELP, BUILT IN</span><h2>Different documents. The right cleanup.</h2></div><button className="text-button" onClick={() => setHelp(true)}>How it works<ArrowRight size={15} /></button></div><div className="preset-highlights">{[
-            [ScanLine, 'Scanned documents', 'Soften the noise, bring back the detail.', 'dotted_document'],
-            [Layers3, 'Watermarks & overlays', 'Clear supported text and website marks.', 'overlay'],
-            [FileCheck2, 'A finish you control', 'Preview, compare, and choose what stays.', null],
-          ].map(([Icon, title, description, id]) => <button key={title} className={`feature-card ${method === id ? 'chosen' : ''}`} onClick={() => id ? choosePreset(id) : setHelp(true)}><span className="feature-icon"><Icon size={21} strokeWidth={1.5} /></span><div><h3>{title}</h3><p>{description}</p></div><ArrowRight size={16} /></button>)}</div></section>
-          {job && <div className="resume-bar"><FileText size={18} /><span>Your document <strong>{job.name}</strong> is still open.</span><button className="text-button" onClick={() => navigate('workspace')}>Continue editing<ArrowRight size={16} /></button></div>}
-          <footer className="main-footer"><span><ShieldCheck size={14} />Thoughtful cleanup. No cloud required.</span><span>ClearPage <span className="footer-divider">/</span> A clearer view.</span></footer>
+          {job && <div className="resume-bar"><FileText size={18} /><span>Your document <strong>{job.name}</strong> is still open.</span><button className="text-button" onClick={() => navigate(results.length ? 'review' : 'workspace')}>Continue editing<ArrowRight size={16} /></button></div>}
+
         </>}
 
-        {view === 'documents' && <><div className="page-heading document-heading"><div><span className="eyebrow">YOUR CURRENT SESSION</span><h1 ref={titleRef} tabIndex={-1}>My document<span>.</span></h1><p>Your open PDF, ready when you are. Files are kept only for this local session.</p></div><Button onClick={() => fileRef.current?.click()} disabled={busy}><Plus size={17} />Add a PDF</Button></div>{job ? <button className="document-row" onClick={() => navigate('workspace')}><span className="document-icon"><FileText size={27} /></span><div><h2>{job.name}</h2><p>{job.count} pages · {(job.size / 1024 / 1024).toFixed(1)} MB · {results.length ? 'Ready for review' : 'Ready to clean'}</p></div><span className="text-button">Open document<ArrowRight size={17} /></span></button> : <div className="empty-state"><FolderOpen size={43} strokeWidth={1} /><h2>A little room for clarity.</h2><p>Add your first PDF to get started.</p><Button onClick={() => fileRef.current?.click()}><Plus size={17} />Choose a PDF</Button></div>}{error && <div role="alert" className="status-banner error">{error}</div>}</>}
 
         {view === 'workspace' && job && <>
-          <div className="editor-heading"><div><button className="text-button back-button" disabled={busy} onClick={() => navigate('upload')}><ArrowLeft size={14} />Back to upload</button><h1 ref={titleRef} tabIndex={-1}>{job.name}</h1><p>{job.count} {job.count === 1 ? 'page' : 'pages'}<span>·</span>{(job.size / 1024 / 1024).toFixed(1)} MB<span>·</span><LockKeyhole size={12} />Local document</p></div><Button variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}><Plus size={16} />New PDF</Button></div>
-          <div className="editor-layout"><section className="document-viewer" aria-label="Document preview"><div className="viewer-toolbar"><span><span className="live-dot" />{comparing ? 'Compare your result' : 'Original document'}</span><div className="zoom-controls"><button className="icon-button" aria-label="Zoom out" disabled={zoom <= 50} onClick={() => setZoom(value => value - 25)}><ZoomOut size={16} /></button><span>{zoom}%</span><button className="icon-button" aria-label="Zoom in" disabled={zoom >= 200} onClick={() => setZoom(value => value + 25)}><ZoomIn size={16} /></button><button className="icon-button" aria-label="Reset zoom" onClick={() => setZoom(100)}><Maximize2 size={15} /></button></div></div>
+          <div className="editor-heading"><div className="editor-file"><button className="icon-button" aria-label="Back to upload" disabled={busy} onClick={() => navigate('upload')}><ArrowLeft size={18} /></button><FileText size={22} /><div><h1 ref={titleRef} tabIndex={-1}>{job.name}</h1><p>{job.count} {job.count === 1 ? 'page' : 'pages'}<span>·</span>{(job.size / 1024 / 1024).toFixed(1)} MB<span>·</span><LockKeyhole size={12} />Local document</p></div></div><Button variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}><Plus size={16} />New PDF</Button></div>
+          <div className={`editor-layout ${!comparing ? 'initial-preview' : ''}`}><section className="document-viewer" aria-label="Document preview"><div className="viewer-toolbar"><span><span className="live-dot" />{comparing ? 'Compare your result' : 'Original document'}</span><div className="zoom-controls"><button className="icon-button" aria-label="Zoom out" disabled={zoom <= 50} onClick={() => setZoom(value => value - 25)}><ZoomOut size={16} /></button><span>{zoom}%</span><button className="icon-button" aria-label="Zoom in" disabled={zoom >= 200} onClick={() => setZoom(value => value + 25)}><ZoomIn size={16} /></button><button className="icon-button" aria-label="Reset zoom" onClick={() => setZoom(100)}><Maximize2 size={15} /></button></div></div>
             <div className={`page-canvas ${comparing ? 'comparing' : ''} zoom-${zoom}`}>
               <figure><figcaption>Original<span>Unchanged</span></figcaption><div className="page-image"><img src={`/api/page/${job.id}/${page}/before?v=${revision}`} alt={`Original document page ${page + 1}`} onError={() => setPreviewError(true)} /></div></figure>
               {comparing && <figure><figcaption>Cleaned<span><Check size={11} />Preview</span></figcaption><div className="page-image"><img src={`/api/page/${job.id}/${page}/after?v=${revision}`} alt={`Cleaned document page ${page + 1}`} onError={() => setPreviewError(true)} /></div></figure>}
@@ -246,25 +246,24 @@ export default function App() {
             {previewError && <div role="alert" className="status-banner error">Could not load the page preview.<button className="text-button" onClick={() => { setPreviewError(false); setRevision(value => value + 1); }}>Retry</button></div>}
             <div className="page-navigation"><button className="icon-button" aria-label="Previous page" disabled={busy || page === 0} onClick={() => { setPage(value => value - 1); setPreviewError(false); }}><ChevronLeft size={17} /></button><label>Page <select aria-label="Preview page" value={page} disabled={busy} onChange={event => { setPage(Number(event.target.value)); setPreviewError(false); }}>{Array.from({ length: job.count }, (_, index) => <option key={index} value={index}>{index + 1}</option>)}</select> of {job.count}</label><button className="icon-button" aria-label="Next page" disabled={busy || page === job.count - 1} onClick={() => { setPage(value => value + 1); setPreviewError(false); }}><ChevronRight size={17} /></button></div>
           </section>
-          <aside className="cleanup-panel" aria-label="Cleanup settings"><div className="panel-title"><span className="feature-icon"><WandSparkles size={20} /></span><div><h2>{results.length ? 'Ready for a closer look.' : 'Make room for clarity.'}</h2><p>{results.length ? 'Your pages. Your final say.' : 'Find the right fit for your PDF.'}</p></div></div>
-            <fieldset disabled={busy} className="preset-fieldset"><legend>Choose a cleanup preset</legend><p>Pick the example closest to your document.</p><div className="preset-options">{presets.map(item => <label key={item.id} className={`preset-option ${method === item.id ? 'selected' : ''}`}><input type="radio" name="preset" value={item.id} checked={method === item.id} onChange={() => choosePreset(item.id)} /><img src={`/static/type-${item.image}.${item.image === 'polarity' ? 'svg' : 'webp'}`} alt="" /><span><strong>{item.title}</strong><small>{item.description}</small></span><span className="radio-indicator">{method === item.id && <Check size={11} />}</span></label>)}</div></fieldset>
-            <div className="panel-actions"><Button variant="secondary" onClick={preview} disabled={busy}><ScanLine size={16} />Preview first page</Button><Button onClick={cleanAll} disabled={busy}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}Clean all {job.count} {job.count === 1 ? 'page' : 'pages'}<ArrowRight size={16} /></Button><span className="panel-footnote"><ShieldCheck size={13} />Your original is always preserved.</span></div>
+          <aside className="cleanup-panel" aria-label="Cleanup settings"><div className="panel-title"><span className="feature-icon"><WandSparkles size={20} /></span><div><h2>Choose your PDF type</h2><p>Select a card to see an example.</p></div></div>
+            <fieldset disabled={busy} className="preset-fieldset"><legend className="sr-only">PDF type</legend><div className="pdf-type-grid">{presets.map(item => <button type="button" key={item.id} className={'pdf-type-card ' + (method === item.id ? 'selected' : '')} aria-label={'View ' + item.title + ' PDF type'} aria-haspopup="dialog" onClick={() => setPdfType(item)}><span className="pdf-type-thumbnail"><img src={'/static/type-' + item.image + '.' + (item.image === 'polarity' ? 'svg' : 'webp')} alt="" />{method === item.id && <span className="pdf-type-check"><Check size={13} /></span>}</span><span className="pdf-type-card-title">{item.title}<ArrowRight size={14} /></span><span className="pdf-type-tag">{item.tag}</span><span className="sr-only">{method === item.id ? 'Selected' : ''}</span></button>)}</div></fieldset>
+            <div className="panel-actions"><Button className="preview-action" onClick={preview} disabled={busy}><ScanLine size={16} />Preview first page</Button><Button className="clean-action" onClick={cleanAll} disabled={busy}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}Clean all {job.count} {job.count === 1 ? 'page' : 'pages'}<ArrowRight size={16} /></Button><span className="panel-footnote"><ShieldCheck size={13} />Your original is always preserved.</span></div>
           </aside></div>
           <div aria-live="polite" role={error ? 'alert' : 'status'} className={`status-banner ${error ? 'error' : ''}`}>{busy ? <LoaderCircle size={17} className="animate-spin" /> : error ? <CircleHelp size={17} /> : <Check size={17} />}<span>{error || message}</span>{busy && progress !== null && <span className="progress-value">{progress}%</span>}</div>
           {busy && <progress className="work-progress" aria-label="Document processing progress" {...(progress !== null ? { value: progress, max: 100 } : {})} />}
           {method==='huntington_background'&&previewed.size>0&&<HuntingtonReview key={job.id} job={job} results={results} page={page} revision={revision} preview={huntingtonPreview} busy={busy} request={request} waitForJob={waitForJob} begin={begin} end={()=>setBusy(false)} onPage={setPage} update={state=>{setJob(previous=>({...previous,...state}));setResults(state.results||[]);setRevision(value=>value+1);setSelected(new Set());setDownloaded(false);setMessage(state.message||'Review the updated text.');}}/>}
-          {!!results.length && <section className="review-section"><div className="section-heading"><div><span className="eyebrow">THE FINISHING TOUCH</span><h2>Choose what makes the cut.</h2><p>Selected pages use the cleaned version. Unchecked pages keep the original.</p></div><Button variant="secondary" disabled={busy} onClick={() => setSelected(selected.size === job.count ? new Set() : new Set(Array.from({ length: job.count }, (_, index) => index)))}><CheckCheck size={16} />{selected.size === job.count ? 'Clear selection' : 'Select all pages'}</Button></div>
-            <div className="review-grid">{Array.from({ length: job.count }, (_, index) => { const result = results.find(item => item.page === index); return <div key={index} className={`review-card ${selected.has(index) ? 'is-selected' : ''}`}><label><input type="checkbox" aria-label={`Use cleaned page ${index + 1}`} checked={selected.has(index)} disabled={busy} onChange={() => togglePage(index)} /><span className="review-check">{selected.has(index) && <Check size={12} />}</span><div className="review-thumbnail"><img loading="lazy" src={`/api/page/${job.id}/${index}/after?v=${revision}`} alt={`Cleaned page ${index + 1} thumbnail`} onError={event => { event.currentTarget.hidden = true; }} /><span>Page {index + 1}</span></div><div className="review-caption"><strong>Page {index + 1}</strong><small className={result?.uncertain ? 'needs-review' : ''}>{result?.changed ? result.uncertain ? 'Review carefully' : 'Cleaned' : 'Unchanged'}</small></div></label><button className="review-inspect" disabled={busy} onClick={() => { setPage(index); setPreviewError(false); document.querySelector('.document-viewer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>Compare page<ArrowRight size={12} /></button></div>; })}</div>
-            <div className="export-bar"><div><span className="check-circle"><Check size={15} /></span><div><strong>{selected.size} of {job.count} cleaned pages selected</strong><p>All {job.count} pages stay in your PDF.</p></div></div><Button onClick={download} disabled={busy}>{busy ? <LoaderCircle size={17} className="animate-spin" /> : downloaded ? <Check size={17} /> : <ArrowDownToLine size={17} />}{downloaded ? 'Download again' : 'Download PDF'}</Button></div>
-          </section>}
+          {!!results.length && <Button className="open-review-button" disabled={busy} onClick={() => navigate('review')}>Review pages<ArrowRight size={16} /></Button>}
         </>}
+        {view === 'review' && job && <PdfReview job={job} results={results} selected={selected} page={page} revision={revision} busy={busy} error={error} message={message} downloaded={downloaded} onPage={setPage} onToggle={togglePage} onSelectAll={() => setSelected(selected.size === job.count ? new Set() : new Set(Array.from({ length: job.count }, (_, index) => index)))} onDownload={download} onBack={() => navigate('workspace')} />}
       </main>
     </div>
+    {pdfType && <PdfTypeDialog item={pdfType} selected={method === pdfType.id} onSelect={choosePreset} onClose={() => setPdfType(null)} />}
     {help && <HelpDialog onClose={() => setHelp(false)} />}
     {cleanupProgress && <CleanupProgress filename={job.name} {...cleanupProgress} onClose={() => {
       const complete = cleanupProgress.status === 'complete';
       setCleanupProgress(null);
-      if (complete) requestAnimationFrame(() => document.querySelector('.review-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      if (complete) { setPage(0); setView('review'); }
     }} />}
   </div>;
 }
