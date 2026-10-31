@@ -32,6 +32,7 @@ import quality_check
 import scan_input
 import pdf_selection
 import dotted_scans
+import preble_scans
 import scan_patterns
 import huntington
 
@@ -168,7 +169,7 @@ def home():
 def static(name):
     if name not in ('ui.js', 'ui.css', 'favicon.svg', 'app.js', 'style.css', 'repair.js', 'workspace.js', 'objects.js', 'sections.js', 'simple.css', 'simple.js',
                     'type-dotted-document.webp', 'type-dotted-map.webp', 'type-unofficial-copy.webp',
-                    'type-overlay.webp', 'type-huntington.webp', 'type-repeated-diagonal.webp', 'type-polarity.svg'):
+                    'type-overlay.webp', 'type-huntington.webp', 'type-repeated-diagonal.webp', 'type-polarity.svg', 'type-preble.webp'):
         return '', 404
     return send_file(BASE/'static'/name)
 
@@ -269,7 +270,7 @@ def settings(data):
         return dict(method=method, mode='careful', strokes=[], use_reviewed=False,
                     auto_restore=bool(data.get('auto_restore', False)), scan_inversion=False,
                     fix_negative=False, polarity_pages=[])
-    if method in (*dotted_scans.METHODS, *scan_patterns.METHODS):
+    if method in (*dotted_scans.METHODS, *preble_scans.METHODS, *scan_patterns.METHODS):
         return dict(method=method, mode='lama' if method == 'repeated_diagonal_ai' else 'careful', strokes=[], use_reviewed=False,
                     auto_restore=False, scan_inversion=False, fix_negative=False, polarity_pages=[])
     if method == 'polarity':
@@ -332,6 +333,16 @@ def cleanup_page(job, index, options):
 
 
 def process_page(job, index, options):
+    if options['method'] in preble_scans.METHODS:
+        before = Image.open(original(job, index)).convert('RGB')
+        target, details = preble_scans.prepare(job['source'], index, job['dir'], BASE/'assets', lambda: job['cancel'])
+        after = render_page(target, 0)
+        after.save(image_path(job, index, True))
+        overlay = np.array(before)
+        changed = np.any(overlay != np.array(after), axis=2)
+        overlay[changed] = (overlay[changed]*.45 + np.array([240, 85, 45])*.55).astype('uint8')
+        Image.fromarray(overlay).save(job['dir']/f'{index}-mask.png')
+        return dict(page=index, **details)
     if options['method'] in scan_patterns.METHODS:
         before = Image.open(original(job, index)).convert('RGB')
         cancelled = lambda: job['cancel']
@@ -482,7 +493,7 @@ def process_page(job, index, options):
 
 def repair_job(identifier, data):
     job = job_for(identifier)
-    if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
+    if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *preble_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
         raise ValueError('Switch to image cleanup to repair words; overlay removal and black-page correction do not apply word repairs.')
     if job['state'] not in ('review', 'done'):
         raise ValueError('Process all pages first, then repair words in the cleaned preview.')
@@ -622,7 +633,7 @@ def restoration_worker(job,clear=False):
 def restore_all_words(identifier):
     with LOCK:
         job=job_for(identifier)
-        if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
+        if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *preble_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
             raise ValueError('Word restoration is disabled for overlay removal and black-page correction.')
         if job['state'] not in ('review','done'):
             raise ValueError('Process all pages before restoring words.')
@@ -871,7 +882,10 @@ def export_worker(job, keep):
     try:
         require_ai_review(job, keep)
         with LOCK:
-            if job['options']['method'] in dotted_scans.METHODS:
+            if job['options']['method'] in preble_scans.METHODS:
+                preble_scans.write_clean(job['source'], job['dir']/'cleaned.pdf', keep,
+                                        job['dir'], lambda:job['cancel'])
+            elif job['options']['method'] in dotted_scans.METHODS:
                 dotted_scans.write_clean(job['source'], job['dir']/'cleaned.pdf', keep,
                                         job['options']['method'], job['dir'], lambda:job['cancel'])
             elif job['options']['method'] == 'unofficial_copy':

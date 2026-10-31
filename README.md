@@ -5,7 +5,7 @@ A local Windows application for watermark cleanup in PDFs and scanned images.
 ## React interface
 
 The main interface uses React 19, Tailwind CSS 4, and Lucide icons. It includes a
-responsive workspace, drag-and-drop PDF upload, eight visual cleanup presets,
+responsive workspace, drag-and-drop PDF upload, nine visual cleanup presets,
 original/cleaned page comparison with zoom, page selection, and PDF export.
 All frontend assets are bundled locally; no CDN or external fonts are needed.
 
@@ -62,6 +62,24 @@ sparse visual corrections using the existing image export path. Original scan
 objects remain underneath the corrections. This is partial visual cleanup:
 watermark ink merged with protected text may remain, and a 100% original or
 watermark-free result cannot be guaranteed from a flattened scan.
+
+## Preble County - Unofficial Copy
+
+Select **Preble County · Unofficial Copy** for the fine-line diagonal watermark
+in Preble County search packages. Preview, clean all pages, then review and export.
+This is a separate preset from the gray and dotted watermark types.
+
+The preset matches a watermark-only silhouette and removes fine pattern ink at
+the original scan resolution, protecting solid strokes and long rules. It supports
+the verified 2300-2800-pixel-wide, 1-bit DeviceGray CCITT/Flate portrait scans,
+including centered page insets. Unsupported structures or unmatched pages remain
+unchanged. Export retains all pages, their geometry, drawing streams and native
+image dimensions; unchecked pages retain their original images. No OCR or
+generated text is used. Inspect fine characters and intersections: attached
+watermark fragments may remain, and very thin overlapping ink is ambiguous.
+
+Regression coverage is in `test_preble_scans.py`. The packaged pattern contains
+only the watermark silhouette; customer documents are not bundled.
 
 ## Gray watermark cleanup
 

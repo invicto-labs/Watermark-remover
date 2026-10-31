@@ -4,6 +4,7 @@ from PyInstaller.utils.hooks import collect_all
 
 root = Path(SPECPATH)
 datas = [(str(root/'static'), 'static'), (str(root/'assets/huntington.npy'), 'assets'),
+         (str(root/'assets/preble-unofficial.npz'), 'assets'),
          (str(root/'assets/unofficial-copy-1994.npz'), 'assets'),
          (str(root/'assets/unofficial-copy-1019.npz'), 'assets'),
          (str(root/'assets/unofficial-copy-1032.npz'), 'assets'),

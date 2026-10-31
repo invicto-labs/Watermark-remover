@@ -10,6 +10,7 @@ const presets = [
   { id: 'dotted_document', title: 'Dotted document', description: 'Diagonal dotted lettering on scanned documents.', image: 'dotted-document', tag: 'Documents' },
   { id: 'dotted_map', title: 'Maps & surveys', description: 'Dotted lettering across plats and survey maps.', image: 'dotted-map', tag: 'Maps' },
   { id: 'unofficial_copy', title: 'Unofficial copy', description: 'Gray “Unofficial Copy” marks on scans.', image: 'unofficial-copy', tag: 'Scans' },
+  { id: 'preble_unofficial', title: 'Preble County · Unofficial Copy', description: 'Fine-line “Unofficial Copy” marks on Preble County search packages. Review fine text where the mark crosses it.', image: 'preble', tag: 'County scans' },
   { id: 'overlay', title: 'Text & website marks', description: 'Separate PDF text, website names, and stamps.', image: 'overlay', tag: 'Digital PDFs' },
   { id: 'preset', title: 'Huntington County', description: 'The county watermark across scanned text.', image: 'huntington', tag: 'County scans' },
   { id: 'huntington_background', title: 'Huntington - step by step', description: 'Refine cleanup, then repair confirmed words.', image: 'huntington', tag: 'Text review' },
