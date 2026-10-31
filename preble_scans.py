@@ -14,7 +14,7 @@ from dotted_scans import replace_image, image_filter
 
 METHODS = ('preble_unofficial',)
 MAX_PIXELS = 15_000_000
-CACHE = 'preble-v3'
+CACHE = 'preble-v4'
 
 
 def scan_object(page):
@@ -55,6 +55,23 @@ def scan_object(page):
     return name, obj
 
 
+def ink_guard(ink):
+    """Retain solid strokes without keeping a halo of adjacent halftone ink.
+
+    Opposite erosion/dilation anchors avoid the one-pixel translation caused
+    by OpenCV's default even-kernel opening. Short horizontal serifs qualify
+    only next to solid ink; long rules are preserved independently.
+    """
+    kernel = np.ones((2, 2), 'uint8')
+    solid = cv2.dilate(cv2.erode(ink, kernel, anchor=(0, 0)),
+                       kernel, anchor=(1, 1))
+    for rule in (np.ones((1, 101), 'uint8'), np.ones((101, 1), 'uint8')):
+        solid |= cv2.morphologyEx(ink, cv2.MORPH_OPEN, rule)
+    near = cv2.dilate(solid, np.ones((3, 15), 'uint8')) > 0
+    serifs = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((1, 9), 'uint8'))
+    return (solid > 0) | ((serifs > 0) & near)
+
+
 def clean_pixels(a, assets, cancelled=lambda: False):
     h, w = a.shape
     details = dict(native_preble=True, changed=0, matched=False, confidence=None,
@@ -77,12 +94,7 @@ def clean_pixels(a, assets, cancelled=lambda: False):
     scope = cv2.resize(scope, (w, round(580*w/768)), interpolation=cv2.INTER_NEAREST)
     scope = np.pad(scope, ((0, h-scope.shape[0]), (0, 0))).astype(bool)
     ink = (a < 128).astype('uint8')
-    solid = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((2, 2), 'uint8'))
-    # Short axis-aligned runs also occur in the halftone itself. Only long
-    # rules bypass the solid-ink guard, avoiding stray bars beside page numbers.
-    for kernel in (np.ones((1, 101), 'uint8'), np.ones((101, 1), 'uint8')):
-        solid |= cv2.morphologyEx(ink, cv2.MORPH_OPEN, kernel)
-    protected = cv2.dilate(solid, np.ones((3, 3), 'uint8')).astype(bool)
+    protected = ink_guard(ink)
     remove = scope & ~protected & (ink > 0)
     count = int(remove.sum())
     # Require substantial fine-line ink as well as the glyph appearance.
@@ -93,7 +105,7 @@ def clean_pixels(a, assets, cancelled=lambda: False):
     result = a.copy(); result[remove] = 255
     details.update(changed=count, matched=True, uncertain=True,
                    protected=int((scope & protected & (ink > 0)).sum()),
-                   note='Preble County fine-line watermark cleaned at original resolution. Solid strokes and long rules retained; inspect fine text and intersections for residual marks.')
+                   note='Preble County fine-line watermark and attached edge fringe cleaned at original resolution. Solid strokes, supported serifs and long rules retained; inspect fine text and intersections for residual marks.')
     return result, details
 
 

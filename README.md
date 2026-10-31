@@ -81,6 +81,12 @@ watermark fragments may remain, and very thin overlapping ink is ambiguous.
 Regression coverage is in `test_preble_scans.py`. The packaged pattern contains
 only the watermark silhouette; customer documents are not bundled.
 
+The edge refinement uses a centered solid-stroke guard and nearby horizontal
+serifs instead of retaining a full fringe around every letter. It reduces attached
+halftone marks such as those beneath "Situated" and beside "97". Reprocess pages
+to use the refinement; earlier native preview caches are ignored. Fine overlapping
+ink remains ambiguous, so this is not a guarantee of pixel-perfect text recovery.
+
 ## Gray watermark cleanup
 
 The **Unofficial Copy** preset also clears pale compression speckles left around

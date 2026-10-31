@@ -49,6 +49,22 @@ def fixture(path, a, pages=2, inset=False, page_height=800):
 
 
 class PrebleTests(unittest.TestCase):
+    def test_edge_guard_removes_attached_fringe_without_shifting_ink(self):
+        ink = np.zeros((160, 240), 'uint8')
+        ink[35:75, 70:76] = 1
+        ink[74, 65:83] = 1  # Thin horizontal serif on a solid stem.
+        ink[50:56, 110:116] = 1  # Punctuation with a solid interior.
+        ink[100, 10:230] = 1  # Thin form rule.
+        truth = ink.copy()
+        ink[75:77, 66:83:3] = 1  # Watermark fringe below the serif.
+        ink[34, 70:76:3] = 1
+        cleaned = ink & preble.ink_guard(ink)
+        self.assertTrue(np.array_equal(cleaned, truth))
+        # The former 2x2 opening shifted the guard down and right. Reflection
+        # must give identical protection on all sides of document characters.
+        reflected = np.flip(ink).copy()
+        self.assertTrue(np.array_equal(preble.ink_guard(ink), np.flip(preble.ink_guard(reflected))))
+
     def test_cleanup_retains_solid_ink_rules_and_outside_pixels(self):
         a, mask = example(); result, details = preble.clean_pixels(a, ASSETS)
         self.assertTrue(details['matched'], details)
