@@ -46,7 +46,7 @@ jobs:
           $env:CLEARPAGE_DATA_DIR = Join-Path $env:RUNNER_TEMP 'clearpage-tests'
           $env:CLEARPAGE_BILLING_CONFIG = Join-Path $env:RUNNER_TEMP 'absent-free-config.json'
           python -m unittest test_admin test_razorpay test_billing test_workspace test_pdf_export test_app.APITests test_preble_scans test_release test_hosting test_updates test_release_automation test_desktop
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f46b5c5b62d15c2 # v4.0.4
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
           node-version: '22'
           cache: npm
