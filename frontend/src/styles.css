@@ -587,3 +587,18 @@
 .panel-actions .button:disabled { transform: none; box-shadow: none; }
 .billing-payment-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .billing-checkout-link { margin-top: 14px; text-decoration: none; }
+.gemini-trial { padding: 20px 0; border-top: 1px solid #deded6; }
+.gemini-trial p, .gemini-consent { font-size: 13px; line-height: 1.6; color: #55594d; margin: 12px 0; }
+.gemini-trial input[type=password] { display: block; width: 100%; padding: 12px; margin: 8px 0 12px; border: 1px solid #999; border-radius: 8px; }
+.gemini-consent { display: block; }
+.gemini-consent input { margin-right: 8px; }
+/* Suggestions lead the chooser; every existing preset remains available. */
+.cleanup-suggestions { margin: 18px 0; padding: 16px; border: 1px solid #d8e4df; border-radius: 12px; background: #f6faf8; }
+.cleanup-suggestions h3 { margin: 0 0 10px; font-size: 16px; }
+.cleanup-suggestions p { font-size: 13px; line-height: 1.5; margin: 8px 0; }
+.suggestion-card { display: grid; gap: 5px; padding: 12px 0; border-top: 1px solid #d8e4df; }
+.suggestion-card strong { font-size: 14px; }
+.suggestion-example { width: 100%; height: 85px; object-fit: contain; background: white; border-radius: 6px; }
+.suggestion-card small, .suggestion-note { color: #52645b; }
+.suggestion-card .button { margin-top: 6px; width: 100%; }
+.all-cleanup-types > summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 12px 0; }

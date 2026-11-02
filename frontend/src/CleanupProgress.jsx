@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, CircleHelp, FileText, LoaderCircle, ShieldCheck } from 'lucide-react';
 
-export default function CleanupProgress({ filename, completed, total, status, message, onClose }) {
+export default function CleanupProgress({ filename, completed, total, status, message, onClose, onStop }) {
   const dialogRef = useRef(null);
   const actionRef = useRef(null);
+  const [stopping, setStopping] = useState(false);
   const running = status === 'running';
   const failed = status === 'error';
   const percentage = total ? Math.floor(completed / total * 100) : 0;
@@ -45,6 +46,10 @@ export default function CleanupProgress({ filename, completed, total, status, me
       {running ? 'Please keep this window open. Progress updates as each page finishes.' : failed ? message : 'Review the results and choose which cleaned pages to keep.'}
     </p>
     <div className="cleanup-progress-footer"><ShieldCheck size={15} /><span>Your original PDF stays unchanged.</span></div>
+    {running && onStop && <button className="button button-secondary cleanup-progress-action" disabled={stopping} onClick={async () => {
+      setStopping(true);
+      try { await onStop(); } catch { setStopping(false); }
+    }}>{stopping ? 'Stopping after the current region…' : 'Stop cleanup'}</button>}
     {!running && <button ref={actionRef} className={`button button-${failed ? 'secondary' : 'primary'} cleanup-progress-action`} onClick={onClose}>
       {failed ? 'Back to document' : 'Review pages'}{!failed && <ArrowRight size={16} />}
     </button>}

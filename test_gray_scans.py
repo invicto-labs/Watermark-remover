@@ -33,7 +33,7 @@ class NativeGrayTests(unittest.TestCase):
                 (root/f'0-native-gray-{version}.pdf').write_bytes(b'old cached result')
                 (root/f'0-native-gray-{version}.json').write_text('{"matched":false}')
             preview,details=gray_scans.prepare(source,0,root,ASSETS)
-            self.assertEqual(preview.name,'0-native-gray-v4.pdf')
+            self.assertEqual(preview.name,f'0-{gray_scans.CACHE}.pdf')
             self.assertTrue(details['native_gray']);self.assertTrue(details['matched'])
             gray_scans.write_clean(source,root/'output.pdf',[0],root)
             b=np.array(PdfReader(root/'output.pdf').pages[0].images[0].image.convert('RGB'))
@@ -59,7 +59,7 @@ class NativeGrayTests(unittest.TestCase):
             p[NameObject('/Rotate')]=NumberObject(90)
             self.assertIsNone(gray_scans.scan_object(p))
             with self.assertRaises(InterruptedError):gray_scans.prepare(source,0,root,ASSETS,lambda:True)
-            self.assertFalse((root/'0-native-gray-v4.pdf').exists())
+            self.assertFalse((root/f'0-{gray_scans.CACHE}.pdf').exists())
 
 
 if __name__=='__main__':unittest.main()
