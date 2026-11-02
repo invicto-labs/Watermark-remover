@@ -159,13 +159,18 @@ class WorkspaceTests(unittest.TestCase):
         self.assertFalse(np.array_equal(image[10:20,10:20],after[10:20,10:20]))
 
     def test_update_checker_waits_for_windows_asset_and_ignores_external_links(self):
-        payload={'tag_name':'v2.3','html_url':'https://untrusted.example','assets':[]}
+        import updates
+        payload={'tag_name':'v2.3','draft':False,'prerelease':False,'html_url':'https://untrusted.example','assets':[]}
         for ready in (False,True):
-            if ready:payload['assets']=[{'name':'ClearPage-2.3-Windows-x64.zip','state':'uploaded'}]
+            updates._cache.clear()
+            if ready:payload['assets']=[{'name':'ClearPage-2.3-Windows-x64.zip','state':'uploaded','size':100,'browser_download_url':'https://github.com/invicto-labs/Watermark-remover/releases/download/v2.3/ClearPage-2.3-Windows-x64.zip'}]
             with patch('urllib.request.urlopen',return_value=BytesIO(json.dumps(payload).encode())) as call:
                 response=workspace.latest_release()
-                self.assertEqual(response['available'],ready);self.assertEqual(response['url'],workspace.RELEASES)
+                self.assertEqual(response['available'],ready)
+                self.assertTrue(response['url'].startswith(workspace.RELEASES))
+                self.assertNotIn('untrusted.example',response['url'])
                 self.assertIsNone(call.call_args.args[0].data)
+        updates._cache.clear()
 
 
 if __name__=='__main__':unittest.main()

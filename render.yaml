@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: clearpage
+    runtime: python
+    plan: 0.5c-512mb
+    autoDeployTrigger: 'off'
+    buildCommand: pip install -r payment_service/requirements.txt
+    startCommand: python -m payment_service.hosted
+    healthCheckPath: /health
+    disk:
+      name: clearpage-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.14
+      - key: CLEARPAGE_PAYMENT_DB
+        value: /var/data/credits.sqlite3
+      - key: CLEARPAGE_SIGNING_KEY
+        value: /etc/secrets/clearpage-signing.pem
+      - key: CLEARPAGE_SIGNING_PASSWORD
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: CLEARPAGE_SELLER_NAME
+        value: Raysan sure
+      - key: CLEARPAGE_SUPPORT_EMAIL
+        value: sales@zynape.com

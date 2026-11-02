@@ -10,18 +10,21 @@ import shutil
 import subprocess
 import sys
 import zipfile
+import ast
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
 def version():
-    html = (ROOT/'static/index.html').read_text(encoding='utf-8')
-    versions = re.findall(r'ClearPage ([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[a-zA-Z0-9.-]+)?)', html)
-    if len(versions) != 2 or len(set(versions)) != 1:
-        raise ValueError('Set the same ClearPage version in the page title and footer.')
-    value = versions[0]
-    if f"_ClearPage-{value}.pdf" not in (ROOT/'app.py').read_text(encoding='utf-8'):
+    tree = ast.parse((ROOT/'app_version.py').read_text(encoding='utf-8'))
+    values = [ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == 'VERSION' for target in node.targets)]
+    if len(values) != 1 or not isinstance(values[0], str) or not re.fullmatch(r'\d+\.\d+(?:\.\d+)?', values[0]):
+        raise ValueError('Set a stable numeric VERSION in app_version.py.')
+    value = values[0]
+    source = (ROOT/'app.py').read_text(encoding='utf-8')
+    if f"_ClearPage-{value}.pdf" not in source and '_ClearPage-{VERSION}.pdf' not in source:
         raise ValueError('The exported PDF version in app.py must match the interface.')
     if not (ROOT/'README.md').read_text(encoding='utf-8').startswith(f'# ClearPage {value}\n'):
         raise ValueError('Update the README heading to match the application version.')
@@ -40,7 +43,7 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def collect_licenses(bundle):
+def collect_licenses(bundle, standard=False):
     """Collect original notices, including those nested inside wheel packages."""
     target = bundle/'licenses'
     target.mkdir()
@@ -52,7 +55,11 @@ def collect_licenses(bundle):
         if source.suffix.lower() in ('.txt', '.md'):
             shutil.copy2(source, target/source.name)
     installed = []
-    required = {'torch', 'onnxruntime', 'pypdfium2', 'opencv-python-headless', 'numpy', 'pillow'}
+    required = {'pypdfium2', 'opencv-python-headless', 'numpy', 'pillow', 'cryptography', 'flask'}
+    if not standard:
+        required.update(('torch', 'onnxruntime'))
+    if sys.platform == 'win32':
+        required.update(('pywebview', 'pythonnet', 'clr-loader'))
     covered = set()
     for dist in metadata.distributions():
         name = dist.metadata['Name']
@@ -63,6 +70,10 @@ def collect_licenses(bundle):
             path = Path(str(relative))
             # RECORD paths may start ../../; never carry those out of the bundle.
             if '..' in path.parts or path.is_absolute():
+                continue
+            # Installed bytecode can retain the builder's absolute home directory.
+            # It is executable cache, not a third-party license notice.
+            if '__pycache__' in path.parts or path.suffix.lower() in ('.pyc', '.pyo'):
                 continue
             if not any(re.search(r'license|licence|notice|copying|copyright', p, re.I) for p in path.parts):
                 continue
@@ -82,7 +93,7 @@ def collect_licenses(bundle):
         raise ValueError(f'Missing bundled dependency licenses: {sorted(missing)}')
     (bundle/'DEPENDENCIES.txt').write_text('\n'.join(sorted(installed))+'\n', encoding='utf-8')
     (bundle/'THIRD-PARTY-NOTICES.txt').write_text(
-        'ClearPage bundles Python, open-source libraries, LaMa and PP-OCR recognition weights.\n'
+        ('ClearPage Standard bundles Python and open-source libraries; optional neural models are omitted.\n' if standard else 'ClearPage bundles Python, open-source libraries, LaMa and PP-OCR recognition weights.\n') +
         'Original license texts, model provenance and modification notices are in licenses/.\n'
         'See DEPENDENCIES.txt for the installed build environment versions.\n'
         'PDFium notices also remain inside _internal. Windows fonts are not redistributed.\n',
@@ -105,7 +116,7 @@ def build(value):
     command(sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', 'ClearPage.spec')
     bundle = ROOT/'dist/ClearPage'
     collect_licenses(bundle)
-    for name in ('README.md', 'RELEASING.md', 'BENCHMARK.md', 'GITHUB-COMPARISON.md'):
+    for name in ('README.md', 'RELEASING.md', 'BENCHMARK.md', 'GITHUB-COMPARISON.md', 'BILLING.md', 'RAZORPAY.md'):
         shutil.copy2(ROOT/name, bundle/name)
     (bundle/'START-HERE.txt').write_text(
         f'ClearPage {value} - Windows x64\n\n'

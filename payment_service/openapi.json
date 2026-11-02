@@ -1,0 +1,595 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ClearPage Razorpay Fulfillment",
+    "version": "1.1.0",
+    "description": "Seller-hosted HTTPS API. No merchant secrets in customer clients. No PDF uploads. Price and credit count fixed on server."
+  },
+  "paths": {
+    "/api/orders": {
+      "post": {
+        "summary": "Create or resume a fixed INR 999 order; claim is the idempotency key. Existing orders keep their original plan.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrder"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current purchase status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, capability or signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; retry after one minute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider/service unavailable; do not charge again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/purchase": {
+      "post": {
+        "summary": "Recover verified capture and license using the private purchase capability.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Purchase"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current purchase status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, capability or signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; retry after one minute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider/service unavailable; do not charge again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/confirm": {
+      "post": {
+        "summary": "Validate checkout HMAC and independently fetch captured payment.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Confirm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current purchase status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, capability or signature",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds 64 KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; retry after one minute",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Provider/service unavailable; do not charge again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhook": {
+      "post": {
+        "summary": "Handle payment.captured/order.paid; validate raw-body HMAC before fetching payment.",
+        "parameters": [
+          {
+            "name": "X-Razorpay-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "event",
+                  "payload"
+                ],
+                "properties": {
+                  "event": {
+                    "type": "string"
+                  },
+                  "payload": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledged; repeated delivery is safe"
+          },
+          "400": {
+            "description": "Invalid signature/payload"
+          },
+          "413": {
+            "description": "Too large"
+          },
+          "503": {
+            "description": "Retry delivery; provider unavailable"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Service readiness and test/live mode",
+        "responses": {
+          "200": {
+            "description": "Ready"
+          }
+        }
+      }
+    },
+    "/api/credits": {
+      "post": {
+        "summary": "Read authoritative balance or atomically authorize/allocate a document; returns an Ed25519 signed, nonce-bound payload.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "installation",
+                  "account_secret",
+                  "nonce"
+                ],
+                "properties": {
+                  "installation": {
+                    "type": "string"
+                  },
+                  "account_secret": {
+                    "type": "string"
+                  },
+                  "nonce": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{32}$"
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "consume": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "admin_session": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                    "writeOnly": true,
+                    "description": "Optional owner session from the server. Client admin/role flags never grant access."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed payload/signature. Payload contains installation, nonce, digest, authorized, credits, used, purchased, issued_at. A 200 alone does not grant document access; verify signature, binding and authorized=true. Payload also contains admin and admin_expires_at. Only a valid, unexpired owner session authorizes documents without allocating paid records; credits are unchanged."
+          },
+          "400": {
+            "description": "Invalid account or request"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Unavailable; fail closed"
+          }
+        }
+      }
+    },
+    "/api/admin/login": {
+      "post": {
+        "summary": "Verify owner credentials and create an installation-bound one-hour session.",
+        "description": "Optional; owner is provisioned privately. No default credentials or public signup. Session tokens are stored only as hashes on the server; transport requires HTTPS outside explicit localhost testing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "installation",
+                  "account_secret",
+                  "username",
+                  "password"
+                ],
+                "properties": {
+                  "installation": {
+                    "type": "string",
+                    "pattern": "^CP-[a-f0-9]{32}$"
+                  },
+                  "account_secret": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                    "writeOnly": true
+                  },
+                  "username": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session token and expires_at; do not log or persist the token in customer files."
+          },
+          "400": {
+            "description": "Invalid account or request"
+          },
+          "401": {
+            "description": "Owner sign-in failed or owner login is disabled"
+          },
+          "429": {
+            "description": "Too many attempts; wait one minute"
+          },
+          "503": {
+            "description": "Unavailable; no access granted"
+          }
+        }
+      }
+    },
+    "/api/admin/logout": {
+      "post": {
+        "summary": "Revoke this installation-bound owner session.",
+        "description": "Optional; owner is provisioned privately. No default credentials or public signup. Session tokens are stored only as hashes on the server; transport requires HTTPS outside explicit localhost testing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "installation",
+                  "account_secret",
+                  "admin_session"
+                ],
+                "properties": {
+                  "installation": {
+                    "type": "string",
+                    "pattern": "^CP-[a-f0-9]{32}$"
+                  },
+                  "account_secret": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                    "writeOnly": true
+                  },
+                  "admin_session": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Revoked, or no matching session existed."
+          },
+          "400": {
+            "description": "Invalid account or request"
+          },
+          "401": {
+            "description": "Owner sign-in failed or owner login is disabled"
+          },
+          "429": {
+            "description": "Too many attempts; wait one minute"
+          },
+          "503": {
+            "description": "Unavailable; no access granted"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Purchase": {
+        "type": "object",
+        "required": [
+          "claim"
+        ],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Private purchase capability generated by the client; not an API key."
+          }
+        }
+      },
+      "CreateOrder": {
+        "type": "object",
+        "required": [
+          "claim",
+          "installation",
+          "public_key",
+          "account_secret"
+        ],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Private purchase capability generated by the client; not an API key."
+          },
+          "installation": {
+            "type": "string",
+            "pattern": "^CP-[a-f0-9]{32}$"
+          },
+          "public_key": {
+            "type": "string",
+            "description": "Expected seller signing public key."
+          },
+          "account_secret": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Private account capability. Installation must be CP- plus the first 32 hex digits of its SHA-256. Never log or expose this field."
+          }
+        }
+      },
+      "Confirm": {
+        "type": "object",
+        "required": [
+          "claim",
+          "razorpay_order_id",
+          "razorpay_payment_id",
+          "razorpay_signature"
+        ],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Private purchase capability generated by the client; not an API key."
+          },
+          "razorpay_order_id": {
+            "type": "string"
+          },
+          "razorpay_payment_id": {
+            "type": "string"
+          },
+          "razorpay_signature": {
+            "type": "string"
+          }
+        }
+      },
+      "PurchaseStatus": {
+        "type": "object",
+        "required": [
+          "status",
+          "order_id",
+          "amount",
+          "currency",
+          "key_id",
+          "test_mode"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "paid",
+              "refunded"
+            ]
+          },
+          "order_id": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer",
+            "enum": [
+              99900,
+              2000
+            ],
+            "description": "99900 paise for new INR packs; 2000 cents only for existing legacy USD orders."
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "INR",
+              "USD"
+            ]
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "test_mode": {
+            "type": "boolean"
+          },
+          "seller_name": {
+            "type": "string"
+          },
+          "support_email": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string",
+            "description": "Signed installation-bound CP1 pack, only when paid."
+          },
+          "documents": {
+            "type": "integer",
+            "enum": [
+              3,
+              2
+            ],
+            "description": "Two for new INR packs; three only for existing legacy INR packs."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

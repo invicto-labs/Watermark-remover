@@ -15,41 +15,8 @@ from flask import g, jsonify, request, send_file
 import saved_work
 
 ACTIVE = ('processing', 'exporting', 'learning', 'restoring')
-VERSION = '2.2'
-RELEASES = 'https://github.com/invicto-labs/Watermark-remover/releases'
-
-
-def latest_release():
-    req = urllib.request.Request('https://api.github.com/repos/invicto-labs/Watermark-remover/releases/latest',
-                                 headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'ClearPage/'+VERSION})
-    try:
-        with urllib.request.urlopen(req, timeout=8) as response:
-            data = response.read(1024*1024+1)
-        if len(data) > 1024*1024:
-            raise ValueError('Release response too large.')
-        release = json.loads(data)
-        tag = release.get('tag_name', '')
-        match = re.fullmatch(r'v?(\d+)\.(\d+)(?:\.(\d+))?', tag)
-        if not match or release.get('draft') or release.get('prerelease'):
-            return {'message': 'No newer stable version is available.', 'url': RELEASES}
-        current = tuple(int(v) for v in VERSION.split('.'))
-        current = (current + (0, 0, 0))[:3]
-        newer = tuple(int(v or 0) for v in match.groups()) > current
-        ready = any(a.get('name') == f'ClearPage-{tag.lstrip("v")}-Windows-x64.zip' and a.get('state') == 'uploaded'
-                    for a in release.get('assets', []))
-        message = 'You have the latest available stable version.'
-        if newer:
-            message = f'ClearPage {tag.lstrip("v")} is available.' if ready else 'A new version is published; its Windows package is not ready yet.'
-        return {'message': message, 'available': newer and ready, 'url': RELEASES,
-                'version':tag.lstrip('v'), 'package':f'ClearPage-{tag.lstrip("v")}-Windows-x64.zip',
-                'notes':str(release.get('body') or 'No release notes were supplied.')[:2000],
-                'current_version':VERSION}
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return {'message': 'No published releases yet.', 'url': RELEASES}
-        raise ValueError('Could not check GitHub. Try again when connected to the internet.') from error
-    except (OSError, ValueError, KeyError) as error:
-        raise ValueError('Could not check GitHub. Try again when connected to the internet.') from error
+from app_version import VERSION
+from updates import RELEASES, latest_release
 
 
 def register(a):
@@ -240,6 +207,10 @@ def register(a):
             temporary=path.with_suffix('.part')
             temporary.write_text(json.dumps(items),encoding='utf-8');os.replace(temporary,path)
         return jsonify(items)
+
+    @a.app.get('/api/update-status')
+    def update_status():
+        return jsonify(latest_release())
 
     @a.app.post('/api/check-update')
     def update():

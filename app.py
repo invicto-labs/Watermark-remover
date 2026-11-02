@@ -10,10 +10,10 @@ import sys
 import tempfile
 import threading
 import time
-import webbrowser
 import base64
 import subprocess
 from functools import wraps
+from app_version import VERSION
 from flask import Flask, request, jsonify, send_file
 from werkzeug.serving import make_server, WSGIRequestHandler
 from werkzeug.utils import secure_filename
@@ -208,6 +208,8 @@ def upload():
                        state='ready', progress=0, message='Ready to preview.', results=[], cancel=False, **input_info)
             job['overlays'] = pdf_overlays.inspect(source)
             original(job, 0)
+            # Charge only after a valid document and its preview have been created.
+            BILLING.document(source, consume=True)
             JOBS[identifier] = job
             WORK['zip_ready'] = False
             return jsonify(public(job))
@@ -938,7 +940,7 @@ def download(identifier):
     if job['state'] != 'done':
         raise ValueError('The PDF is not ready yet.')
     return send_file(job['dir']/'cleaned.pdf', as_attachment=True,
-                     download_name=Path(job['name']).stem+'_ClearPage-2.2.pdf', mimetype='application/pdf')
+                     download_name=Path(job['name']).stem+f'_ClearPage-{VERSION}.pdf', mimetype='application/pdf')
 
 
 @app.post('/api/compare/<identifier>/<int:index>')
@@ -1077,23 +1079,44 @@ def main():
         from release_selftest import run
         run(BASE, Path(sys.argv[sys.argv.index('--release-self-test')+1]))
         return
-    SERVER = make_server('127.0.0.1', 5055, app, threaded=True, request_handler=QuietHandler)
+    SERVER = make_server('127.0.0.1', 0, app, threaded=True, request_handler=QuietHandler)
     HOST = f'127.0.0.1:{SERVER.server_port}'
     url = f'http://{HOST}/'
     if '--test-info' in sys.argv:
         info = Path(sys.argv[sys.argv.index('--test-info')+1])
         info.write_text(json.dumps({'url': url}), encoding='utf-8')
-    else:
-        webbrowser.open(url)
+        try:
+            SERVER.serve_forever()
+        finally:
+            SERVER.server_close()
+            cleanup()
+        return
+    worker = threading.Thread(target=SERVER.serve_forever, daemon=True)
+    worker.start()
     try:
-        SERVER.serve_forever()
+        from desktop_shell import open_window
+        if '--desktop-test-info' in sys.argv:
+            Path(sys.argv[sys.argv.index('--desktop-test-info')+1]).write_text(
+                json.dumps({'url': url}), encoding='utf-8')
+        open_window(url)
+    except Exception:
+        from desktop_shell import show_startup_error
+        show_startup_error()
+        raise SystemExit(1)
     finally:
+        WORK['stop'] = True
+        for job in JOBS.values():
+            job['cancel'] = True
+        SERVER.shutdown()
+        worker.join(timeout=10)
         SERVER.server_close()
         cleanup()
 
 
 import workspace
 workspace.register(sys.modules[__name__])
+import licensing
+licensing.register(sys.modules[__name__])
 import object_routes
 object_routes.register(sys.modules[__name__])
 

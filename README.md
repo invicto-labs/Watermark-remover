@@ -2,6 +2,18 @@
 
 A local Windows application for watermark cleanup in PDFs and scanned images.
 
+## Optional paid document packs
+
+Sell **₹999 packs for two distinct PDFs** using Razorpay checkout with
+server-verified payments and signed online document authorization. Reopening and
+downloading the exact same paid PDF does not use another credit. See
+[RAZORPAY.md](RAZORPAY.md) for test keys, the separate seller payment service,
+deployment and recovery. Merchant secrets never go into the customer app.
+The optional manual bank-transfer provider is documented in [BILLING.md](BILLING.md).
+Owner-only login in the desktop [Admin panel](ADMIN.md) authorizes document work
+without spending credits. It requires private server provisioning and online
+verification; customer builds have no default admin account or free-use switch.
+
 ## React interface
 
 The main interface uses React 19, Tailwind CSS 4, and Lucide icons. It includes a
@@ -241,12 +253,12 @@ and preservation; they do not claim word accuracy or an overall percentage.
 
 1. Extract **the entire ClearPage-2.2-Windows-x64.zip** to a new folder on your computer.
 2. Open the ClearPage folder and double-click **ClearPage.exe**. Keep the `_internal` folder beside the application.
-3. The app opens in your default browser. Processing happens on your computer; an internet connection and Python installation are not required.
+3. ClearPage opens in its own Windows desktop window. PDF contents are processed on your computer. The paid Standard edition requires internet to verify credits and document access. Python is bundled; Windows 10/11 x64 and Microsoft Edge WebView2 Runtime are required.
 4. Click **Choose a PDF or scan**, or drag a supported file onto the upload box. Recognized website overlays use the same automatic selection as before. Other PDF types can be selected under **More options**.
 5. Click **Try this page** for a preview, or **Clean all pages** to process the document. Compare **Before** and **After**. Use the page arrows and **Zoom in** to inspect the text.
 6. Keep **Use this cleaned page** checked for pages you accept. Uncheck it to keep the original page. AI and uncertain results still keep the original by default. **Choose which pages to clean** provides the complete page list.
 7. Click **Create PDF**, then **Download PDF**. All pages are included in their original order and with their original dimensions.
-8. Click **Save & close** when finished. Closing the browser tab alone does not stop the application.
+8. Finish exporting before closing the desktop window. Closing it stops the local app service and cancels unfinished work; keep your app profile to preserve account access.
 
 ### Simplified interface update (27 October 2026)
 
@@ -365,7 +377,7 @@ This is **visual cleanup, not secure redaction**. It adds visible corrections wh
 
 ## Privacy and lifecycle
 
-Document processing is local. There is no telemetry. The optional **Check for updates** button requests public release metadata from GitHub; it sends no documents, filenames or repair text. The app binds only to `127.0.0.1`, checks the connection address and host, and rejects cross-site requests. No session key or login cookie is required. This is a single-user application, not a network server.
+Document processing is local. There is no telemetry. The application checks for updates shortly after opening, and **Check for updates** also requests public release metadata from GitHub; it sends no documents, filenames or repair text. The app binds only to `127.0.0.1`, checks the connection address and host, and rejects cross-site requests. No session key or login cookie is required. This is a single-user application, not a network server.
 
 Working copies are stored in a randomly named `ClearPage-...` directory under your Windows temporary folder. **Remove this file** removes its open working copy. **Save & close** saves a checkpoint, removes the temporary session directory and stops the server. Checkpoints persist under `%LOCALAPPDATA%\ClearPage\saved-work`; named settings are in `cleanup-presets.json` beside that folder. Delete saved workspaces separately from the welcome screen. Downloaded PDFs remain where you save them. Abrupt termination can leave temporary files behind; these can be removed from `%TEMP%` once ClearPage is closed. Files are deleted normally, not securely erased. Keep company documents in an approved local folder. Developers can set `CLEARPAGE_DATA_DIR` to isolate test checkpoints and settings.
 
@@ -373,7 +385,7 @@ Imported reviewed repairs persist under `%LOCALAPPDATA%\ClearPage\reviewed-pages
 
 ## For company IT / source installation
 
-This repository contains the application source. See [RELEASING.md](RELEASING.md) for maintaining Windows releases. Use Python 3.12 x64:
+This repository contains the application source. For the current paid Standard Windows edition, use [AUTOMATIC-RELEASES.md](AUTOMATIC-RELEASES.md): pushes to main run preview builds; matching version-tag pushes publish verified production releases. The older full-model build instructions below and [RELEASING.md](RELEASING.md) describe the optional AI edition. Use Python 3.12 x64:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -393,10 +405,10 @@ To build and verify the portable Windows package from a fresh checkout:
 ```
 
 The verified ZIP, SHA-256 checksums and build report are in `release-assets/`.
-Publishing a version on GitHub runs the same tests and Windows build automatically,
-then attaches the verified files to the release. Use **Actions → Windows release →
-Run workflow** for a test build without publishing. See [RELEASING.md](RELEASING.md)
-for version tags, failed builds and immutable releases.
+The current **Windows release** workflow builds the Standard edition, not this
+optional AI package. Use **Actions → Windows release → Run workflow** for a
+preview without publishing. See [AUTOMATIC-RELEASES.md](AUTOMATIC-RELEASES.md)
+for public payment configuration, version tags, and customer update notices.
 
 Share the complete ZIP, including `_internal`. Code signing, a managed installer,
 and automatic employee updates are not included. The source and application

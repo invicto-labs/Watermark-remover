@@ -5,6 +5,8 @@ import HuntingtonReview from './HuntingtonReview';
 import CleanupProgress from './CleanupProgress';
 import PdfReview from './PdfReview';
 import useCtrlWheelZoom from './useCtrlWheelZoom';
+import BillingDialog from './BillingDialog';
+import AdminDialog from './AdminDialog';
 
 const presets = [
   { id: 'dotted_document', title: 'Dotted document', description: 'Diagonal dotted lettering on scanned documents.', image: 'dotted-document', tag: 'Documents' },
@@ -35,7 +37,7 @@ async function request(path, body, filename) {
   const data = await response.json().catch(() => {
     throw new Error('The local PDF service did not respond correctly. Restart the app and try again.');
   });
-  if (!response.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
+  if (!response.ok) { const failure = new Error(data.error || 'Something went wrong. Please try again.'); failure.code = data.code; throw failure; }
   return data;
 }
 
@@ -75,6 +77,29 @@ function PdfTypeDialog({ item, selected, onSelect, onClose }) {
 
 export default function App() {
   const [view, setView] = useState('upload');
+  const [billing, setBilling] = useState(null);
+  const [showBilling, setShowBilling] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [dismissedUpdate, setDismissedUpdate] = useState('');
+  const updateRequest = useRef(false);
+  async function checkUpdates(manual = true) {
+    if (updateRequest.current) return;
+    updateRequest.current = true;
+    if (manual) setCheckingUpdate(true);
+    try {
+      const result = await request('/api/update-status');
+      if (manual || result.available) setUpdateInfo(result);
+      if (manual) setDismissedUpdate('');
+    } catch {
+      if (manual) setUpdateInfo({ error: true, message: 'Could not check for updates. Try again when connected.' });
+    } finally { updateRequest.current = false; setCheckingUpdate(false); }
+  }
+  useEffect(() => {
+    const timer = setTimeout(() => checkUpdates(false), 4000);
+    return () => clearTimeout(timer);
+  }, []);
   const [job, setJob] = useState(null);
   const [method, setMethod] = useState('dotted_document');
   const [busy, setBusy] = useState(false);
@@ -100,6 +125,15 @@ export default function App() {
   const canvasRef = useRef(null);
   useCtrlWheelZoom(canvasRef, direction => setZoom(value => Math.max(50, Math.min(200, value + direction * 25))), view === 'workspace' && !!job);
   const stage = job && view === 'review' ? 2 : job && view === 'workspace' ? 1 : 0;
+  async function refreshBilling() {
+    const next = await request('/api/billing'); setBilling(next); return next;
+  }
+  useEffect(() => { refreshBilling().catch(() => {}); }, []);
+  useEffect(() => {
+    if (!billing?.admin) return;
+    const timer=setInterval(()=>refreshBilling().catch(()=>{}),60000);
+    return ()=>clearInterval(timer);
+  }, [billing?.admin]);
 
   useEffect(() => {
     const handleKey = event => { if (event.key === 'Escape') { if (pdfType) return; else if (help) setHelp(false); else if (!busy && view !== 'upload') setView(view === 'review' ? 'workspace' : 'upload'); } };
@@ -145,10 +179,11 @@ export default function App() {
     try {
       const previous = job;
       const next = await request('/api/upload', file, file.name);
+      await refreshBilling().catch(() => {});
       setJob({ ...next, name: file.name, size: file.size }); setPage(0); setRevision(value => value + 1); setPreviewed(new Set()); setResults([]); setSelected(new Set()); setZoom(100); setPreviewError(false);
       setView('workspace'); setMessage('Choose the preset that matches your document, then preview the first page.');
       if (previous) await request(`/api/clear/${previous.id}`, {}).catch(() => {});
-    } catch (failure) { setError(failure.message); setMessage(''); }
+    } catch (failure) { setError(failure.message); setMessage(''); if (failure.code === 'license_required') { await refreshBilling().catch(() => {}); setShowBilling(true); } }
     finally { setBusy(false); uploadLock.current = false; if (fileRef.current) fileRef.current.value = ''; }
   }
   async function waitForJob(expected, onProgress, identifier = job.id, isCurrent = () => true) {
@@ -217,12 +252,21 @@ export default function App() {
     <div className="main-shell">
       <header className="navbar">
         <a className="brand-link" href="/" onClick={event => { event.preventDefault(); navigate('upload'); }} aria-label="ClearPage home"><Brand /></a>
+          <button className="button button-secondary update-trigger" disabled={checkingUpdate} onClick={() => checkUpdates(true)}>{checkingUpdate ? 'Checking updates…' : 'Check for updates'}</button>
+        {billing?.payment_provider === 'razorpay' && <button className="button button-secondary admin-trigger" disabled={busy} onClick={() => { refreshBilling().catch(() => {}); setShowAdmin(true); }}>{billing.admin ? 'Admin · signed in' : 'Admin login'}</button>}
+        {billing?.enabled && !billing.admin && <button className="button button-secondary billing-trigger" disabled={busy} onClick={() => { refreshBilling().catch(() => {}); setShowBilling(true); }}><LockKeyhole size={15} />{billing.credits} credits · Buy / activate</button>}
         {view !== 'review' && <div className="stepper" aria-label="Cleanup progress">{steps.map((label, index) => <React.Fragment key={label}>{index > 0 && <span className={`step-line ${stage >= index ? 'complete' : ''}`} />}<span className={`step ${stage === index ? 'current' : stage > index ? 'done' : ''}`} aria-current={stage === index ? 'step' : undefined}><b>{stage > index ? <Check size={12} /> : `0${index + 1}`}</b><span>{label}</span></span></React.Fragment>)}</div>}
       </header>
       <main className={view === 'review' ? 'main-content review-content' : view === 'workspace' ? 'main-content workspace-content' : 'main-content'}>
+          {updateInfo && (!updateInfo.available || dismissedUpdate !== updateInfo.version) && <aside className={`update-notice ${updateInfo.available ? 'update-ready' : ''}`} role="status">
+            <div><strong>{updateInfo.message}</strong>{updateInfo.available && <p>Download the new ZIP, close ClearPage and extract it into a new folder. Keep your existing app profile so your online account access is preserved.</p>}</div>
+            {updateInfo.available && <div className="update-links"><a className="button button-primary" href={updateInfo.download_url} target="_blank" rel="noopener noreferrer">Download {updateInfo.version} ↗</a><a href={updateInfo.url} target="_blank" rel="noopener noreferrer">Release notes</a></div>}
+            <button className="icon-button" aria-label="Dismiss update notice" onClick={() => { if (updateInfo.available) setDismissedUpdate(updateInfo.version); else setUpdateInfo(null); }}><X size={17} /></button>
+          </aside>}
         <input ref={fileRef} type="file" accept="application/pdf,.pdf" aria-label="Choose a PDF" className="sr-only" disabled={busy} onChange={event => upload(event.target.files?.[0])} />
 
         {view === 'upload' && <>
+          {billing?.admin ? <div className="billing-upload-note admin-active" role="status"><strong>Admin access is active.</strong> Documents do not use paid credits during this verified session. <button className="text-button" disabled={busy} onClick={()=>setShowAdmin(true)}>Manage admin session</button></div> : billing?.enabled && <div className="billing-upload-note"><strong>₹999 for two documents.</strong> One credit per distinct PDF. Reopen and download the same file again at no extra charge. <button className="text-button" disabled={busy} onClick={() => setShowBilling(true)}>Buy / activate</button></div>}
           <div className="upload-layout"><section className="upload-card"><div className="card-topline"><span><Upload size={16} />ADD YOUR DOCUMENT</span><span className="file-type">.PDF</span></div>
             <button disabled={busy} className={`dropzone ${dragging ? 'dragging' : ''}`} onClick={() => fileRef.current?.click()} onDragOver={event => { event.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); if (event.dataTransfer.files.length > 1) setError('Please add one PDF at a time.'); else upload(event.dataTransfer.files[0]); }}>
               <span className="upload-art"><span className="upload-art-back" /><span className="upload-art-front"><FileText size={37} strokeWidth={1.1} /></span><span className="upload-art-plus"><Plus size={16} /></span></span>
@@ -259,6 +303,8 @@ export default function App() {
     </div>
     {pdfType && <PdfTypeDialog item={pdfType} selected={method === pdfType.id} onSelect={choosePreset} onClose={() => setPdfType(null)} />}
     {help && <HelpDialog onClose={() => setHelp(false)} />}
+    {showBilling && <BillingDialog status={billing} request={request} onChange={setBilling} onClose={() => setShowBilling(false)} />}
+    {showAdmin && <AdminDialog status={billing} request={request} onChange={setBilling} onClose={()=>setShowAdmin(false)} />}
     {cleanupProgress && <CleanupProgress filename={job.name} {...cleanupProgress} onClose={() => {
       const complete = cleanupProgress.status === 'complete';
       setCleanupProgress(null);

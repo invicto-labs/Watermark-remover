@@ -1,4 +1,34 @@
 @import "tailwindcss";
+.admin-dialog input{width:100%;border:1px solid #ded8d0;border-radius:8px;padding:12px;margin:6px 0 18px;font:inherit;background:white;color:#302d29}.admin-dialog input:focus{outline:2px solid #cc3727;outline-offset:2px}.admin-active{background:#eff8f0!important;border-color:#cbdcce!important}.admin-trigger{white-space:nowrap;font-size:12px!important}
+.navbar{gap:16px;flex-wrap:wrap;padding-top:14px;padding-bottom:14px}.navbar .billing-trigger{margin-left:0}
+.update-trigger { margin-left: auto; white-space: nowrap; font-size: 12px; }
+.update-notice { display: flex; align-items: center; gap: 18px; padding: 16px 20px; border: 1px solid #ded8cc; border-radius: 12px; margin-bottom: 20px; background: #fffdf8; font-size: 13px; }
+.update-ready { border-color: #b4c7b7; background: #f2f8f2; }
+.update-notice p { margin: 6px 0 0; line-height: 1.6; color: #6b665e; }
+.update-links { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.update-notice > .icon-button { margin-left: auto; flex-shrink: 0; }
+@media(max-width: 800px) { .update-notice { flex-wrap: wrap; } .update-links { flex-wrap: wrap; } .update-trigger { font-size: 10px; padding: 8px; } }
+
+.billing-trigger { margin-left: 24px; }
+.billing-upload-note { margin-bottom: 20px; padding: 16px 20px; border: 1px solid #e7e5e4; border-radius: 12px; background: #fff9f5; font-size: 13px; line-height: 1.8; }
+.billing-upload-note .text-button { display: inline-flex; margin-left: 12px; }
+.billing-dialog { border: 1px solid #e7e5e4; border-radius: 18px; width: min(620px, calc(100vw - 32px)); max-height: 90dvh; margin: auto; padding: 0; color: #403c39; background: white; box-shadow: 0 20px 80px #0003; }
+.billing-dialog::backdrop { background: #201c1888; }
+.billing-content { position: relative; padding: 32px; }
+.billing-content h2 { margin: 14px 25px 12px 0; font-size: 28px; font-weight: 600; letter-spacing: -.8px; }
+.billing-content h3 { margin: 24px 0 10px; font-size: 16px; font-weight: 600; }
+.billing-content p { font-size: 13px; line-height: 1.7; margin-bottom: 12px; overflow-wrap: anywhere; }
+.billing-balance { display: flex; align-items: center; gap: 10px; background: #f3f5ee; border-radius: 10px; padding: 15px; margin: 18px 0; }
+.bank-details { display: grid; grid-template-columns: 125px 1fr; gap: 10px; font-size: 13px; padding: 18px; background: #f7f6f4; border-radius: 10px; }
+.bank-details dt { color: #726b64; }.bank-details dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.transfer-instructions { white-space: pre-wrap; margin-top: 14px; }
+.billing-setup { background: #fff7e9; padding: 1px 16px 8px; border-radius: 10px; }
+.installation-code { display: flex; flex-direction: column; align-items: flex-start; gap: 9px; margin: 20px 0; font-size: 12px; }
+.installation-code code { overflow-wrap: anywhere; width: 100%; }
+.billing-content label { display: block; font-size: 14px; font-weight: 600; margin: 22px 0 10px; }
+.billing-content textarea { width: 100%; border: 1px solid #bbb4ae; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; resize: vertical; margin-bottom: 12px; }
+.billing-content .billing-error { color: #a12720; margin-top: 16px; }.billing-content .billing-message { color: #33633c; margin-top: 16px; }
+@media (max-width: 700px) { .billing-trigger { margin-left: auto; }.billing-content { padding: 24px; }.bank-details { grid-template-columns: 1fr; gap: 5px; }.bank-details dd { margin-bottom: 10px; } }
 
 @theme {
   --color-brand: #d92d20;
@@ -555,3 +585,5 @@
 .panel-actions .review-action:hover:not(:disabled), .panel-actions .clean-action:hover:not(:disabled) { background: linear-gradient(180deg, #506487, #394d70); border-color: #30415f; box-shadow: inset 0 1px 0 #ffffff30, 0 4px 0 #1c2940, 0 8px 16px #23334f2b; transform: translateY(-1px); }
 .panel-actions .preview-action:active:not(:disabled), .panel-actions .review-action:active:not(:disabled), .panel-actions .clean-action:active:not(:disabled) { transform: translateY(2px); box-shadow: inset 0 2px 4px #00000020, 0 1px 0 #30211b4d; }
 .panel-actions .button:disabled { transform: none; box-shadow: none; }
+.billing-payment-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.billing-checkout-link { margin-top: 14px; text-decoration: none; }

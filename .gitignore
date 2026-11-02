@@ -12,6 +12,8 @@ release-assets/
 *.zip
 *.exe
 *.log
+*.sqlite3
+*.sqlite3-*
 
 # Downloaded model weights; use the hash-verified download scripts
 models/
@@ -41,6 +43,11 @@ models/
 reviewed-pages/
 ClearPage-*/
 .env
+billing.json
+*.pem
+*.license
+*-issued.jsonl
+*-issued.json
 .env.*
 !.env.example
 launch.json
