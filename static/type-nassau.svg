@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 540">
+ <defs>
+  <pattern id="tiles" width="18" height="18" patternUnits="userSpaceOnUse">
+   <path d="M2 2h12v12H2zM5 5h6v6M5 7v4h4z" fill="none" stroke="#dedede" stroke-width="1.4"/>
+  </pattern>
+ </defs>
+ <path fill="#fff" d="M0 0h420v540H0z"/>
+ <path fill="url(#tiles)" d="M26 28h368v20H26zM26 490h368v20H26zM26 28h20v482H26zM374 28h20v482h-20z"/>
+ <g fill="#333" font-family="serif">
+  <text x="64" y="91" font-size="12" font-weight="bold">SAMPLE DOCUMENT</text>
+  <text x="64" y="115" font-size="8">Recorded information and document text</text>
+ </g>
+ <g stroke="#555" stroke-width="2">
+  <path d="M64 147h280M64 169h270M64 191h284M64 213h265M64 257h278M64 279h269M64 301h280M64 323h250M64 367h276M64 389h265M64 411h275"/>
+ </g>
+ <text x="-24" y="358" transform="rotate(-45 210 270)" font-family="serif" font-size="34" fill="none" stroke="#d5d5d5" stroke-width="1.3">UNOFFICIAL COPY</text>
+</svg>

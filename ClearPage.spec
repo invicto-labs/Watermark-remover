@@ -20,6 +20,7 @@ if owner_test:
 if billing_path.exists() and not payment_ready(configuration(billing_path)) and not preview:
     raise ValueError('Complete billing.json before distributing a paid build. See BILLING.md.')
 datas = [(str(root/'static'), 'static'), (str(root/'assets/clearpage.ico'), 'assets'), (str(root/'assets/huntington.npy'), 'assets'),
+         (str(root/'assets/nassau-border.npy'), 'assets'),
          (str(root/'assets/preble-unofficial.npz'), 'assets'),
          (str(root/'assets/unofficial-copy-1994.npz'), 'assets'),
          (str(root/'assets/unofficial-copy-1019.npz'), 'assets'),

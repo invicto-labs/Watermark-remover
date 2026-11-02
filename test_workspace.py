@@ -160,10 +160,11 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_update_checker_waits_for_windows_asset_and_ignores_external_links(self):
         import updates
-        payload={'tag_name':'v2.3','draft':False,'prerelease':False,'html_url':'https://untrusted.example','assets':[]}
+        newer = str(int(updates.VERSION.split('.')[0])+1)+'.0'
+        payload={'tag_name':'v'+newer,'draft':False,'prerelease':False,'html_url':'https://untrusted.example','assets':[]}
         for ready in (False,True):
             updates._cache.clear()
-            if ready:payload['assets']=[{'name':'ClearPage-2.3-Windows-x64.zip','state':'uploaded','size':100,'browser_download_url':'https://github.com/invicto-labs/Watermark-remover/releases/download/v2.3/ClearPage-2.3-Windows-x64.zip'}]
+            if ready:payload['assets']=[{'name':f'ClearPage-{newer}-Windows-x64.zip','state':'uploaded','size':100,'browser_download_url':f'https://github.com/invicto-labs/Watermark-remover/releases/download/v{newer}/ClearPage-{newer}-Windows-x64.zip'}]
             with patch('urllib.request.urlopen',return_value=BytesIO(json.dumps(payload).encode())) as call:
                 response=workspace.latest_release()
                 self.assertEqual(response['available'],ready)
