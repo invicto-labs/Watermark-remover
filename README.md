@@ -17,7 +17,7 @@ verification; customer builds have no default admin account or free-use switch.
 ## React interface
 
 The main interface uses React 19, Tailwind CSS 4, and Lucide icons. It includes a
-responsive workspace, drag-and-drop PDF upload, nine visual cleanup presets,
+responsive workspace, drag-and-drop PDF and scan upload, visual cleanup presets,
 original/cleaned page comparison with zoom, page selection, and PDF export.
 All frontend assets are bundled locally; no CDN or external fonts are needed.
 
@@ -41,6 +41,151 @@ files are included by the existing Windows packaging configuration. End users
 do not need Node.js. The normal application opens at `http://127.0.0.1:5055/`.
 Documents remain in the current application session;
 the interface does not persist customer files in browser storage.
+
+After upload, **Suggested for this file** checks the first, middle, and last
+pages locally and shows up to three matching cleanup types, with explanations
+and page numbers. Choose **Use this type**, then preview the result. Suggestions
+do not change the PDF or select a cleanup automatically. **All cleanup types**
+keeps every preset available and opens when no clear match is found. Sampled
+pages may not represent the entire file; review other page types before export.
+
+## Light-gray marks on black ink scans
+
+For large diagonal gray **Unofficial Copy** lettering, use **Unofficial copy**.
+The preset retains strong matches to existing layouts and automatically aligns
+the known lettering on other supported pages, including changes in size/angle
+and clipped upper-right edge fragments. Suggestions also inspect native scans
+with fully opaque PDF image masks. Weak alignment is rejected. Aligned cleanup
+preserves every original dark pixel (levels 0–75) and all pixels outside its
+cleanup area; faint strokes at overlaps still need review. No AI or OCR is used.
+Preview and export share the same versioned native-image cache.
+
+Choose **Light gray · black ink scans** for repeated horizontal “Unofficial Copy /
+Gallia County” marks like the tested search package. Preview, clean all pages,
+then review and download. This local preset removes only the separate light-gray
+range and verifies that every original black pixel remains unchanged. It does
+not rewrite text or require AI. It works on original scan samples and preserves
+page placement, cropping, rotation, dimensions, and order.
+
+The preset rejects colored scans, intermediate gray text, non-repeating gray
+marks, and unsupported PDF images. Those pages stay unchanged. A matching pixel
+palette is not proof that all gray content is a watermark: review before export.
+
+## Red diagonal scan watermarks
+
+Choose **Red “Not an Official Copy”**, preview a page, then select **Clean all**
+and review before downloading. This runs the local color-separation script used
+for pale red diagonal marks on black-and-white scans; no API key or AI model is
+needed. It does not rewrite words. Faint-ink protection retains neutral/non-red
+pixels exactly and excludes detected text regions and nearby letter edges from
+background whitening. Ambiguous traces may remain where removal would risk text.
+Simple RGB scan PDFs are processed and exported
+at their original pixel resolution, with page order and dimensions preserved.
+Other layouts use the rendered-page path. Pages without a large diagonal red
+pattern are retained. Red document content within the watermark band and faint
+overlapping strokes can change, so compare names, numbers and signatures.
+
+## Optional Gemini cloud draft
+
+Choose **Gemini AI draft · cloud**, enter a Gemini API key in the app's password
+field, and select **Use key for this session**. Never put keys in chat, source
+files or document settings. No local AI package is required. The key is held
+only in backend process memory and can be removed with **Forget key**; closing
+the backend also clears it. This button does not revoke the key at Google.
+
+Choose a page in the viewer, confirm sending that page to Google, then select
+**Create draft of page N**. This explicitly opt-in trial uses
+`gemini-3-pro-image` through Google's HTTPS API. Google model access, billing,
+quotas and data policies apply. Standard presets stay local. The trial never
+runs from automatic detection or batch queues, and never sends the entire PDF.
+Other pages keep their originals. A new trial replaces the current review;
+successful page drafts are cached for the local document session to avoid paying
+again for the same request. Failures are not automatically retried. Stopping
+discards a pending result, but cannot cancel billing for an already submitted
+Google request.
+
+AI may reconstruct the entire page and change text, signatures or barcodes.
+Generated images include Google's SynthID. No accuracy percentage is assigned.
+Compare the original and AI draft, mark the page reviewed, then select that
+cleaned page for export. Selected AI drafts cannot be exported without review.
+The original file remains unchanged, and every page stays in the exported PDF.
+Responses with changed page proportions, invalid images or incomplete output
+are rejected; accepted images are resized to the source canvas when needed.
+
+Protocol reference: [Google image generation and editing](https://ai.google.dev/gemini-api/docs/generate-content/image-generation).
+`test_gemini_cleanup.py` exercises mocked protocol responses, credential secrecy,
+explicit consent, cancellation, caching, review enforcement and multipage export.
+These tests do not measure Gemini's visual quality or verify live account access.
+
+## Repeated diagonal lettering on scans
+
+The React interface also offers **Repeated diagonal · local AI**, using the
+existing LaMa `repeated_diagonal_ai` backend. It checks for the verified model
+and local PyTorch runtime before enabling processing. No Gemini key or cloud
+request is needed. Preview the first page, then generate drafts for the file.
+Changed AI pages start unchecked; compare each page, check **Mark page reviewed**,
+and select the drafts you accept before downloading. Both the browser and
+backend enforce review. A Stop control is available during processing.
+
+This uses the earlier LaMa model and its full diagonal-band cleanup coverage.
+After inference, a separate pass copies supported source strokes back into
+the draft. It learns both watermark ink and whitespace from blank-area copies;
+at least two copies must cover each restored pixel. A restored pixel must lie
+inside a document-content region, be substantially darker than every nearby
+reference, and not be an isolated watermark donor. Faint strokes and antialiased
+edges are also copied when at least three independent references all have a
+white 3-by-3 neighborhood (every reference pixel is at least 245/255). This
+additional rule applies only to original gray levels 100–229; a dark reference
+neighbor vetoes it. Unknown areas retain the
+full AI cleanup instead of being skipped, fixing the narrow-mask regression.
+No words are retyped or inferred by the copy-back step. Pixels outside that
+step match the earlier AI result. Predictions use a versioned cache; both
+outside-mask preservation and copied source strokes are checked when loading.
+Opaque intersections can still lose letters, and watermark fragments can remain.
+
+This does not reproduce the separately uploaded
+"ChatGPT Image" reference. It can remove covered letter strokes and does not
+guarantee 100% watermark removal or correct wording. Standard offline cleanup
+remains available as **Repeated diagonal** and does not require PyTorch.
+
+Upload a PDF, JPG, PNG or TIFF and select **Repeated diagonal**. The React
+interface now calls the `repeated_document` method. It detects regularly spaced
+diagonal bands, finds horizontal document rows using ink outside those bands,
+and removes isolated watermark components in margins and text gaps. Short
+recording numbers, row ends, connected handwriting, stamp interiors and barcode
+strokes are guarded. No AI dependency, OCR or generated text is used.
+
+An additional offline pass learns the repeat spacing from at least three
+independently matched blank-area patches. It compares multiple intact copies
+of each predicted watermark pixel, rejects inconsistent matches, and removes
+qualifying lettering around protected document strokes. Dark ink, faint text
+rows, tall signature strokes and barcode structures remain guarded. The
+`template_extra_pixels` statistic measures additional edited pixels, not
+accuracy. Unmatched patterns fall back to the conservative pass.
+
+The same algorithm is available as a standalone script (using the application's
+normal Python dependencies, without Gemini, AI weights or OCR):
+
+```powershell
+python clean_repeated.py "input.jpg" "output.png"
+python clean_repeated.py "input.pdf" "output.pdf"
+```
+
+The script refuses to overwrite inputs or existing files, writes a JSON report
+to standard output, and retains every PDF page. Image outputs are lossless PNGs.
+It cannot recover original strokes that an opaque watermark has destroyed.
+
+Try the first page, compare the result, then clean all pages and select the
+versions you have checked. Scans are exported as PDFs. The preview and batch
+result show the method's limitations; changed pages start unchecked. This is
+**partial cleanup**: opaque watermark pixels merged with document ink cannot be
+recovered exactly from a flattened scan. Marks in protected areas may remain.
+Changed-pixel counts and residual ink counts are not accuracy percentages.
+
+`test_repeated_document.py` checks known text (including faint text and short
+numbers), signatures, stamps and barcodes at three image sizes, clean-page
+rejection, cancellation, non-AI routing, image upload, and preview/export parity.
+The older `repeated_diagonal` API remains available for margins-only cleanup.
 
 ## Huntington watermark - step by step
 
@@ -429,7 +574,7 @@ saved work, and selective PDF export. Changed pages require explicit selection.
 | Dotted diagonal Unofficial Document on a large plat map | Dotted watermark · plat map | Uses the supported map layout and retains native map resolution. |
 | Gray diagonal Unofficial Copy on Warren County scans | Gray “Unofficial Copy” scan | Matches supported letter/legal and landscape plat-map scan templates, then reverses the gray blend. Simple full-page RGB scans are cleaned and exported at native resolution. Near-black original pixels stay unchanged. Other layouts are retained. |
 | Small repeated diagonal lettering across a scan | Repeated diagonal scan · blank areas only | **Partial cleanup only.** Detects regularly spaced diagonal lettering and removes isolated components outside a conservative document-content rectangle. Overlapping marks inside that rectangle remain. |
-| Repeated diagonal lettering overlapping document text | Repeated diagonal scan · AI draft | Optional local LaMa reconstruction of ink inside detected diagonal bands. Original strokes at intersections can be replaced. Generated wording, numbers, signatures and barcode data are unverified. |
+| Repeated diagonal lettering overlapping document text | Repeated diagonal scan · AI draft | Full-band local LaMa reconstruction followed by copying supported dark source strokes back into the draft. Opaque intersections remain unverified; some lettering can be damaged or remain watermarked. |
 
 For **AI draft**, try one page before processing the file. Compare the Before and
 After views and highlight changes. Select only drafts you accept, then click
@@ -455,3 +600,14 @@ and application preview/batch/selective export. Customer-file acceptance checks
 are run locally and are not committed to the repository.
 
 Run `python test_app.py`, `python test_overlays.py`, `python test_quality.py`, and `python test_scans.py` in the Windows source environment. Tests exercise cleanup boundaries, text preservation, rotated/cropped PDF export, page retention, local request protection, upload validation, preview, batch processing, selective export, and session cleanup. Word-repair tests also verify selection validation, exact-case donor matching, preview isolation, confirmation, stale-preview rejection, outside-rectangle preservation, reprocessing, exported pixels and exact undo. Quality tests cover negative scans, manual overrides, normal-page preservation, reference metrics and benchmark validation.
+
+
+### Small repeated gray copy marks
+Choose **Small repeated copy** (also suggested automatically for supported scans).
+The offline method recognizes many matching glyphs, adjusts their scale, reverses
+the supported gray overlay inside matched areas, and preserves native pixels outside
+those areas. It supports ordinary RGB scans and scans nested in tiling PDF patterns.
+Preview and export use the same lossless native-image result; no AI or OCR rewriting
+is used. Review each cleaned page before selecting it for export: overlapped ink,
+dark headers, and black margins can retain marks. Original security printing is not
+a cleanup target. This is not a guarantee of exact reconstruction or total removal.

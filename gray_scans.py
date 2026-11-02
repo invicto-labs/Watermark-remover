@@ -9,6 +9,8 @@ from pdf_overlays import read_pdf
 from dotted_scans import replace_image
 import scan_patterns
 
+CACHE = 'native-gray-v5-aligned'
+
 
 def scan_object(page):
     resources = page['/Resources'] if '/Resources' in page else {}
@@ -49,7 +51,7 @@ def scan_object(page):
 
 
 def prepare(source, index, directory, assets, cancelled=lambda: False):
-    target = Path(directory)/f'{index}-native-gray-v4.pdf'
+    target = Path(directory)/f'{index}-{CACHE}.pdf'
     metadata = target.with_suffix('.json')
     if target.exists() and metadata.exists():
         return target, json.loads(metadata.read_text())
@@ -85,7 +87,7 @@ def write_clean(source, target, keep, directory, cancelled=lambda: False):
     writer = PdfWriter(); writer.clone_document_from_reader(read_pdf(source))
     for index in keep:
         if cancelled(): raise InterruptedError('Cancelled')
-        path = Path(directory)/f'{index}-native-gray-v4.pdf'
+        path = Path(directory)/f'{index}-{CACHE}.pdf'
         found = scan_object(read_pdf(path).pages[0])
         if found is None: raise ValueError('The native gray scan cache is invalid. Process again.')
         name, obj = found

@@ -1,6 +1,7 @@
 """ClearPage - Windows local browser application."""
 from pathlib import Path
 import atexit
+import gc
 import io
 import json
 import os
@@ -34,7 +35,12 @@ import pdf_selection
 import dotted_scans
 import preble_scans
 import scan_patterns
+import red_scans
+import flat_gray_scans
+import repeated_copy
+import cleanup_suggestions
 import huntington
+import gemini_cleanup
 
 BASE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 ROOT = Path(tempfile.mkdtemp(prefix='ClearPage-'))
@@ -78,6 +84,14 @@ def too_large(error):
 @app.errorhandler(ValueError)
 def invalid(error):
     return jsonify(error=str(error)), 400
+
+
+MEMORY_MESSAGE = 'Not enough memory to finish cleanup. Close older ClearPage instances or other large applications, then retry. The original document is unchanged.'
+
+
+@app.errorhandler(MemoryError)
+def memory_failure(error):
+    return jsonify(error=MEMORY_MESSAGE), 503
 
 
 @app.errorhandler(Exception)
@@ -169,7 +183,8 @@ def home():
 def static(name):
     if name not in ('ui.js', 'ui.css', 'favicon.svg', 'app.js', 'style.css', 'repair.js', 'workspace.js', 'objects.js', 'sections.js', 'simple.css', 'simple.js',
                     'type-dotted-document.webp', 'type-dotted-map.webp', 'type-unofficial-copy.webp',
-                    'type-overlay.webp', 'type-huntington.webp', 'type-repeated-diagonal.webp', 'type-polarity.svg', 'type-preble.webp'):
+                    'type-overlay.webp', 'type-huntington.webp', 'type-repeated-diagonal.webp', 'type-polarity.svg',
+                    'type-preble.webp', 'type-red-copy.svg', 'type-flat-gray.svg', 'type-repeated-copy.svg'):
         return '', 404
     return send_file(BASE/'static'/name)
 
@@ -226,6 +241,107 @@ def status(identifier):
 @app.get('/api/session')
 def session():
     return jsonify(public(next(iter(JOBS.values()))) if JOBS else None)
+
+
+@app.get('/api/suggestions/<identifier>')
+def suggestions(identifier):
+    with LOCK:
+        job = job_for(identifier)
+        if 'suggestions' not in job:
+            if job['state'] in ('processing', 'exporting', 'learning', 'restoring'):
+                return jsonify(items=[], sampled_pages=[], skipped_pages=[], total_pages=job['count'],
+                               note='Cleanup is already running. You can choose another type after it finishes.')
+            job['suggestions'] = cleanup_suggestions.suggest(
+                job['source'], job['count'], job['overlays'],
+                lambda index: original(job, index), BASE/'assets')
+        return jsonify(job['suggestions'])
+
+
+@app.get('/api/gemini')
+def gemini_status():
+    return jsonify(gemini_cleanup.status())
+
+
+@app.get('/api/local-ai')
+def local_ai_status():
+    import importlib.util
+    try:
+        neural_restore.verify_model(BASE/'models/big-lama.pt')
+        if importlib.util.find_spec('torch') is None:
+            raise ValueError('The local AI runtime is missing. Start ClearPage with its AI Python environment or use the complete AI Windows package.')
+    except ValueError as error:
+        return jsonify(ready=False, message=str(error))
+    return jsonify(ready=True, message='LaMa model verified; local AI runtime found. No API key or cloud upload is used.')
+
+
+@app.post('/api/gemini/key')
+def gemini_key():
+    data = request.get_json()
+    gemini_cleanup.configure(data.get('key', ''))
+    return jsonify(gemini_cleanup.status())
+
+
+def gemini_trial_worker(job, index, key):
+    """One explicitly selected page; never entered by automatic detection or queues."""
+    try:
+        with LOCK:
+            before = Image.open(original(job, index)).convert('RGB')
+        import hashlib
+        signature = hashlib.sha256((gemini_cleanup.MODEL + gemini_cleanup.PROMPT + page_fingerprint(before)).encode()).hexdigest()
+        cache = job.setdefault('gemini_cache', {})
+        if signature in cache:
+            path, details = cache[signature]
+            with Image.open(path) as image:
+                result = image.convert('RGB')
+        else:
+            job.update(message=f'Sending page {index + 1} to Google Gemini. This may take a few minutes.')
+            # No application lock across the network call: status and cancellation remain available.
+            result, details = gemini_cleanup.reconstruct(before, key, lambda: job['cancel'])
+            path = job['dir']/f'gemini-{signature}.png'
+            result.save(path)
+            cache[signature] = (path, details)
+        if job['cancel']:
+            raise InterruptedError()
+        with LOCK:
+            result.save(image_path(job, index, True))
+            changed = int(np.any(np.array(result) != np.array(before), axis=2).sum())
+            results = []
+            for i in range(job['count']):
+                if i == index:
+                    results.append(dict(page=i, changed=changed, uncertain=True, ai=True,
+                        reconstruction_unverified=True, confidence=None, **details,
+                        pattern_note='Gemini AI draft: the whole page may have been reconstructed. Compare all text, numbers, signatures and barcodes with the original. Visual cleanliness does not establish accuracy. Google adds SynthID to generated images.'))
+                else:
+                    shutil.copyfile(original(job, i), image_path(job, i, True))
+                    results.append(dict(page=i, changed=0, uncertain=False))
+            job.update(results=results, state='review', progress=job['count'],
+                       message=f'Gemini draft ready for page {index + 1}. Other pages retain their originals. Review before exporting.')
+    except InterruptedError:
+        job.update(state='cancelled', message='Trial stopped. The original is unchanged. A submitted Google request may still be billed.')
+    except ValueError as error:
+        job.update(state='error', message=str(error))
+    except Exception:
+        job.update(state='error', message='Gemini trial failed. No draft was applied; the original is unchanged.')
+
+
+@app.post('/api/gemini/trial/<identifier>')
+def gemini_trial(identifier):
+    with LOCK:
+        job = job_for(identifier)
+        if job['state'] in ('processing', 'exporting', 'learning', 'restoring'):
+            raise ValueError('Wait for the current operation to finish.')
+        data = request.get_json()
+        index = data.get('page')
+        if type(index) is not int or not 0 <= index < job['count']:
+            raise ValueError('Choose a valid page for the Gemini trial.')
+        if data.get('consent') is not True:
+            raise ValueError('Confirm sending this page to Google Gemini first.')
+        key = gemini_cleanup.credential()
+        job.update(state='processing', progress=0, results=[], options={'method': 'gemini_draft'},
+                   cancel=False, message='Preparing the Gemini page trial...', ui={})
+        WORK['zip_ready'] = False
+        threading.Thread(target=gemini_trial_worker, args=(job, index, key), daemon=True).start()
+        return jsonify(public(job))
 
 
 @app.get('/api/thumbnail/<identifier>/<int:index>')
@@ -371,6 +487,34 @@ def process_page(job, index, options):
             details['matched'] = details['matched'] or bool(changed.any())
             details['uncertain'] = bool(changed.any())
             details['pattern_note'] += ocr_note
+        elif options['method'] == 'repeated_copy':
+            native = repeated_copy.prepare(job['source'], index, job['dir'], cancelled)
+            if native is not None:
+                target, details = native
+                pixels = np.array(render_page(target, 0))
+                changed = np.any(pixels != np.array(before), axis=2)
+            else:
+                pixels = np.array(before)
+                changed = np.zeros(pixels.shape[:2], bool)
+                details = repeated_copy.unchanged_details()
+        elif options['method'] == 'flat_gray_copy':
+            native = flat_gray_scans.prepare(job['source'], index, job['dir'], cancelled)
+            if native is not None:
+                target, details = native
+                pixels = np.array(render_page(target, 0))
+                changed = np.any(pixels != np.array(before), axis=2)
+            else:
+                pixels = np.array(before)
+                changed = np.zeros(pixels.shape[:2], bool)
+                details = flat_gray_scans.unchanged_details('Page kept unchanged: this preset needs one supported RGB scan image. It does not threshold rendered text or ordinary grayscale pages.')
+        elif options['method'] == 'red_copy':
+            native = red_scans.prepare(job['source'], index, job['dir'], cancelled)
+            if native is not None:
+                target, details = native
+                pixels = np.array(render_page(target, 0))
+                changed = np.any(pixels != np.array(before), axis=2)
+            else:
+                pixels, changed, details = red_scans.clean(before, cancelled)
         elif options['method'] == 'unofficial_copy':
             import gray_scans
             native = gray_scans.prepare(job['source'], index, job['dir'], BASE/'assets', cancelled)
@@ -381,12 +525,12 @@ def process_page(job, index, options):
             else:
                 pixels, changed, details = scan_patterns.unofficial_copy(before, BASE/'assets', cancelled)
         elif options['method'] == 'repeated_diagonal_ai':
-            selected, note = scan_patterns.repeated_ai_mask(before, cancelled)
+            selected, retained, note = scan_patterns.repeated_ai_plan(before, cancelled)
             source = np.array(before)
             pixels = source.copy()
             if selected.any():
                 import hashlib
-                key = hashlib.sha256(b'repeated-ai-v1'+selected.tobytes()+page_fingerprint(before).encode()).hexdigest()[:24]
+                key = hashlib.sha256(b'repeated-ai-v4-source-edges'+selected.tobytes()+retained.tobytes()+page_fingerprint(before).encode()).hexdigest()[:24]
                 cache = job['dir']/f'{index}-repeated-ai-{key}.png'
                 if cache.exists():
                     with Image.open(cache) as cached:
@@ -397,12 +541,16 @@ def process_page(job, index, options):
                     if cancelled(): raise InterruptedError('Cancelled')
                     if pixels.shape != source.shape or pixels.dtype != np.uint8 or not np.array_equal(pixels[~selected], source[~selected]):
                         raise ValueError('AI output failed pixel-preservation checks. No draft was applied.')
+                    pixels[retained] = source[retained]
                     Image.fromarray(pixels).save(cache)
             if cancelled(): raise InterruptedError('Cancelled')
             if pixels.shape != source.shape or pixels.dtype != np.uint8 or not np.array_equal(pixels[~selected], source[~selected]):
                 raise ValueError('AI output failed pixel-preservation checks. No draft was applied.')
+            if not np.array_equal(pixels[retained], source[retained]):
+                raise ValueError('AI draft failed original-stroke checks. No draft was applied.')
             changed = np.any(pixels != source, axis=2)
             details = dict(scan_pattern=True, ai=True, confidence=None, matched=bool(selected.any()),
+                mask_strategy='full_coverage_source_restore_v4', retained_source_pixels=int(retained.sum()),
                 changed=int(changed.sum()), protected=int((~selected).sum()), selected_pixels=int(selected.sum()),
                 reviewed=False, uncertain=bool(selected.any()), reconstruction_unverified=bool(selected.any()), pattern_note=note)
         elif options['method'] == 'repeated_document':
@@ -411,7 +559,12 @@ def process_page(job, index, options):
             pixels, changed, details = scan_patterns.repeated_diagonal(before, cancelled)
         Image.fromarray(pixels).save(image_path(job, index, True))
         overlay = np.array(before)
-        overlay[changed] = (overlay[changed]*.45 + np.array([240,85,45])*.55).astype('uint8')
+        # Bound the float64 preview temporary instead of selecting an entire
+        # rendered page (potentially hundreds of MB) in one allocation.
+        for row in range(0, overlay.shape[0], 128):
+            block = overlay[row:row+128]
+            mask = changed[row:row+128]
+            block[mask] = (block[mask]*.45 + np.array([240,85,45])*.55).astype('uint8')
         Image.fromarray(overlay).save(job['dir']/f'{index}-mask.png')
         job.pop('pending_repair', None)
         return dict(page=index, **details)
@@ -495,7 +648,7 @@ def process_page(job, index, options):
 
 def repair_job(identifier, data):
     job = job_for(identifier)
-    if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *preble_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
+    if (job.get('options') or {}).get('method') in ('gemini_draft', 'overlay', 'object', 'polarity', *dotted_scans.METHODS, *preble_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
         raise ValueError('Switch to image cleanup to repair words; overlay removal and black-page correction do not apply word repairs.')
     if job['state'] not in ('review', 'done'):
         raise ValueError('Process all pages first, then repair words in the cleaned preview.')
@@ -635,7 +788,7 @@ def restoration_worker(job,clear=False):
 def restore_all_words(identifier):
     with LOCK:
         job=job_for(identifier)
-        if (job.get('options') or {}).get('method') in ('overlay', 'object', 'polarity', *dotted_scans.METHODS, *preble_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
+        if (job.get('options') or {}).get('method') in ('gemini_draft', 'overlay', 'object', 'polarity', *dotted_scans.METHODS, *preble_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
             raise ValueError('Word restoration is disabled for overlay removal and black-page correction.')
         if job['state'] not in ('review','done'):
             raise ValueError('Process all pages before restoring words.')
@@ -809,7 +962,11 @@ def preview(identifier):
         if options.get('scan_inversion') and 'inversion_model' not in job:
             raise ValueError('Process all pages once with PureScan enabled to learn this document’s watermark. Individual previews are available afterward.')
         index = int(data.get('page', 0))
-        result = process_page(job, index, options)
+        job['cancel'] = False
+        try:
+            result = process_page(job, index, options)
+        except InterruptedError:
+            raise ValueError('Preview stopped. The original document is unchanged.') from None
         # A preview belongs to new settings; old all-page results are no longer exportable.
         job.update(state='ready', results=[], options=options, message='Preview ready. Process all pages when satisfied.')
         job['ui']={}
@@ -836,7 +993,12 @@ def batch(job, options):
                 if job['cancel']:
                     job.update(state='cancelled', message='Stopped. The original PDF is unchanged.')
                     return
-                result = process_page(job, index, options)
+                try:
+                    result = process_page(job, index, options)
+                finally:
+                    # PDF readers/writers contain cycles with large decoded
+                    # streams. Collect only after the page work has unwound.
+                    gc.collect()
                 job['results'].append(result)
                 job.update(progress=index+1, message=f'Processed page {index+1} of {job["count"]}.')
         if options.get('auto_restore'):
@@ -848,6 +1010,8 @@ def batch(job, options):
         job.update(state='cancelled', message='Stopped. The original PDF is unchanged.')
     except ValueError as error:
         job.update(state='error', message=str(error))
+    except MemoryError:
+        job.update(state='error', message=MEMORY_MESSAGE)
     except Exception as error:
         job.update(state='error', message='Processing failed. The original PDF is unchanged. Clear the document and try again.')
 
@@ -873,7 +1037,7 @@ def cancel(identifier):
 
 
 def require_ai_review(job, keep):
-    if (job.get('options') or {}).get('method') == 'repeated_diagonal_ai':
+    if (job.get('options') or {}).get('method') in ('repeated_diagonal_ai', 'gemini_draft'):
         reviewed = set(job.get('ui', {}).get('reviewed', []))
         generated = {r['page'] for r in job.get('results', []) if r.get('reconstruction_unverified')}
         if (set(keep) & generated) - reviewed:
@@ -890,12 +1054,17 @@ def export_worker(job, keep):
             elif job['options']['method'] in dotted_scans.METHODS:
                 dotted_scans.write_clean(job['source'], job['dir']/'cleaned.pdf', keep,
                                         job['options']['method'], job['dir'], lambda:job['cancel'])
-            elif job['options']['method'] == 'unofficial_copy':
+            elif job['options']['method'] in ('unofficial_copy', 'red_copy', 'flat_gray_copy', 'repeated_copy'):
                 import gray_scans
-                native = [i for i in keep if job['results'][i].get('native_gray')]
+                module, native_key = {'red_copy': (red_scans, 'native_red'),
+                                      'flat_gray_copy': (flat_gray_scans, 'native_flat_gray'),
+                                      'repeated_copy': (repeated_copy, 'native_repeated_copy'),
+                                      'unofficial_copy': (gray_scans, 'native_gray')}[job['options']['method']]
+                results = {r['page']: r for r in job['results']}
+                native = [i for i in keep if results.get(i, {}).get(native_key)]
                 other = [i for i in keep if i not in native]
-                target = job['dir']/('native-gray-export.pdf' if other else 'cleaned.pdf')
-                gray_scans.write_clean(job['source'], target, native, job['dir'], lambda:job['cancel'])
+                target = job['dir']/('native-scan-export.pdf' if other else 'cleaned.pdf')
+                module.write_clean(job['source'], target, native, job['dir'], lambda:job['cancel'])
                 if other:
                     edits = {i: (original(job, i), image_path(job, i, True)) for i in other}
                     write_pdf(target, job['dir']/'cleaned.pdf', edits, lambda:job['cancel'])

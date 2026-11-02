@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import useCtrlWheelZoom from './useCtrlWheelZoom';
 import { ArrowDownToLine, ArrowLeft, Check, CheckCheck, ChevronLeft, ChevronRight, FileText, LoaderCircle, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 
-export default function PdfReview({ job, results, selected, page, revision, busy, error, message, downloaded, onPage, onToggle, onSelectAll, onDownload, onBack }) {
+export default function PdfReview({ job, results, selected, page, revision, busy, error, message, downloaded, onPage, onToggle, onSelectAll, onDownload, onBack, reviewedAI, onReviewAI }) {
   const [version, setVersion] = useState('after');
   const [zoom, setZoom] = useState(100);
   const [fitMode, setFitMode] = useState('page');
@@ -32,9 +32,11 @@ export default function PdfReview({ job, results, selected, page, revision, busy
   return <section className="pdf-review" aria-label="Review and export PDF">
     <header className="review-topbar">
       <div className="review-file"><button className="icon-button" aria-label="Back to cleanup" disabled={busy} onClick={onBack}><ArrowLeft size={19} /></button><FileText size={21} /><div><h1 ref={titleRef} tabIndex={-1}>{job.name}</h1><p>{selected.size} of {job.count} cleaned pages selected</p></div></div>
-      <div className="review-top-actions"><button className="button button-secondary" disabled={busy} onClick={onSelectAll}><CheckCheck size={16} />{selected.size === job.count ? 'Clear selection' : 'Select all'}</button><button className="button button-primary" disabled={busy || !results.length} onClick={onDownload}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowDownToLine size={16} />}{busy ? 'Preparing PDF…' : downloaded ? 'Download again' : 'Download PDF'}</button></div>
+      <div className="review-top-actions"><button className="button button-secondary" disabled={busy} onClick={onSelectAll}><CheckCheck size={16} />{selected.size === job.count ? 'Clear selection' : 'Select all'}</button><button className="button button-primary" disabled={busy || !results.length || results.some(item => item.reconstruction_unverified && selected.has(item.page) && !reviewedAI?.has(item.page))} onClick={onDownload}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <ArrowDownToLine size={16} />}{busy ? 'Preparing PDF…' : downloaded ? 'Download again' : 'Download PDF'}</button></div>
     </header>
     <p className="review-guidance">Selected pages use the cleaned version. Unchecked pages keep the original. All {job.count} pages stay in your PDF.</p>
+    {result?.pattern_note && <p className="review-guidance" role="status">{result.pattern_note}</p>}
+    {result?.reconstruction_unverified && <label className="review-guidance"><input type="checkbox" checked={reviewedAI?.has(page) || false} disabled={busy} onChange={event => onReviewAI(page, event.target.checked)} /> I compared this AI draft with the original, including text, numbers, signatures and barcodes.</label>}
     {(error || busy || downloaded) && <div className={`review-notice ${error ? 'error' : ''}`} role={error ? 'alert' : 'status'}>{error || message}</div>}
     <div className="review-reader">
       <aside className="review-page-rail" aria-label="PDF pages"><div className="review-rail-title">Pages <span>{job.count}</span></div><div className="review-page-list">{Array.from({ length: job.count }, (_, index) => {

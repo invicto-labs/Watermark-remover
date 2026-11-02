@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from vendor.purescan_core import invert_multiply
 
-METHODS = ('huntington_background', 'unofficial_copy', 'repeated_diagonal', 'repeated_diagonal_ai', 'repeated_document')
+METHODS = ('huntington_background', 'unofficial_copy', 'red_copy', 'flat_gray_copy', 'repeated_copy', 'repeated_diagonal', 'repeated_diagonal_ai', 'repeated_document')
 MAX_PIXELS = 12_000_000
 GRAY_LAYOUTS = (1019, 1032, 1994, 2019, 2024, 2029, 2536, 2538)
 
@@ -145,6 +145,17 @@ def gray_watermark_edges(result, selected, seed, cancelled=lambda: False):
 
 
 def unofficial_copy(image, assets, cancelled=lambda: False):
+    if cancelled(): raise InterruptedError('Cancelled')
+    fixed = _unofficial_copy_fixed(image, assets, cancelled)
+    # Keep exact well-matched legacy layouts; realign weak or unknown layouts.
+    if fixed[2].get('pattern_match',0) >= .90:
+        return fixed
+    from aligned_gray import clean
+    aligned = clean(image, assets, cancelled)
+    return aligned if aligned is not None else fixed
+
+
+def _unofficial_copy_fixed(image, assets, cancelled=lambda: False):
     a = np.array(image.convert('RGB'))
     h, w = a.shape[:2]
     if h*w > MAX_PIXELS:
@@ -203,11 +214,15 @@ def _repeated_detection(image, cancelled=lambda: False):
     h, w = gray.shape
     if h*w > MAX_PIXELS:
         raise ValueError('This scan is too large for repeated-watermark cleanup.')
+    scale = w / 1200
+    def px(value):
+        return max(1, round(value * scale))
     if cancelled(): raise InterruptedError('Cancelled')
     def no_match(note):
         return a, gray, None, None, None, note
     _, labels, stats, _ = cv2.connectedComponentsWithStats((gray < 220).astype('uint8'), connectivity=8)
-    small = (stats[:,4] >= 2) & (stats[:,4] <= 80) & (stats[:,2] <= 23) & (stats[:,3] <= 23)
+    small = ((stats[:,4] >= max(1, 2*scale*scale)) & (stats[:,4] <= 80*scale*scale) &
+             (stats[:,2] <= px(23)) & (stats[:,3] <= px(23)))
     small[0] = False
     candidates = small[labels].astype('uint8')
     lines = cv2.HoughLines(candidates, 1, np.pi/180, max(60,int(w*.12)),
@@ -219,46 +234,71 @@ def _repeated_detection(image, cancelled=lambda: False):
     y, x = np.ogrid[:h,:w]
     rho = x*np.cos(angle*np.pi/180) + y*np.sin(angle*np.pi/180)
     projection = np.bincount(np.round(rho).astype(int).ravel(), weights=candidates.ravel())
-    smooth = np.convolve(projection, np.ones(15), mode='same')
+    smooth = np.convolve(projection, np.ones(px(15)), mode='same')
     peaks = []
+    strength = {}
     for _ in range(30):
         p = int(smooth.argmax())
-        if smooth[p] < w: break
+        if smooth[p] < w*.25: break
         peaks.append(p)
-        smooth[max(0,p-50):p+51] = 0
+        strength[p] = float(smooth[p])
+        smooth[max(0,p-px(50)):p+px(50)+1] = 0
+    weak_peaks = peaks
+    peaks = [p for p in peaks if strength[p] >= w]
     if len(peaks) < 4:
         return no_match('Not enough repeated diagonal lines to distinguish a watermark. Original retained.')
     # Keep a regular sequence, rather than unrelated diagonal annotations.
     best = []
+    best_period = None
     for left in peaks:
         for right in peaks:
             period = abs(right-left)
-            if not 85 <= period <= min(w,h)*.4: continue
-            fit = [p for p in peaks if abs((p-left+period/2) % period-period/2) < 8]
-            if len(fit) > len(best): best = fit
+            if not px(85) <= period <= min(w,h)*.4: continue
+            fit = [p for p in peaks if abs((p-left+period/2) % period-period/2) < px(8)]
+            if len(fit) > len(best):
+                best, best_period = fit, period
     if len(best) < 4:
         return no_match('The diagonal marks do not form a supported repeated pattern. Original retained.')
+    # Clipped edge copies have fewer letters, so they cannot establish a
+    # pattern themselves. Include them only after the strong repeats establish
+    # the same spacing, and only at an observed peak (never an invented band).
+    origin = best[0]
+    best += [p for p in weak_peaks if p not in best and
+             abs((p-origin+best_period/2) % best_period-best_period/2) < px(8)]
     band = np.zeros(gray.shape, bool)
-    for p in best: band |= np.abs(rho-p) < 18
+    for p in best: band |= np.abs(rho-p) < px(18)
     if cancelled(): raise InterruptedError('Cancelled')
     return a, gray, labels, stats, band, ''
 
 
 def repeated_ai_mask(image, cancelled=lambda: False):
-    """Select ink along detected diagonal bands, including document overlaps.
+    """Return the full reconstruction scope (also used by export checks)."""
+    selected, _, note = repeated_ai_plan(image, cancelled)
+    return selected, note
 
-    This mask intentionally includes intersecting original strokes. The caller
+
+def repeated_ai_plan(image, cancelled=lambda: False):
+    """Keep full-band cleanup and separately identify observed source strokes.
+
+    Some intersecting original strokes remain inseparable. The caller
     must label predictions as generated drafts, never as exact restorations.
     """
-    a, gray, _, _, band, note = _repeated_detection(image, cancelled)
+    a, gray, labels, stats, band, note = _repeated_detection(image, cancelled)
     if band is None:
-        return np.zeros(a.shape[:2], bool), note
+        empty = np.zeros(a.shape[:2], bool)
+        return empty, empty.copy(), note
     selected = band & (gray < 245)
     selected = (cv2.dilate(selected.astype('uint8'), np.ones((3,3), 'uint8')) > 0) & band
     count = int(selected.sum())
     if count < 300 or count > gray.size*.25:
-        return np.zeros(gray.shape, bool), 'The detected area is too small or too broad for automatic AI cleanup. Original retained; use a custom painted area instead.'
-    return selected, 'AI reconstruction draft: detected diagonal bands include overlapping text. Letters, numbers, signatures and barcode data may change. Review every affected area before selecting this page. Complete removal and text accuracy are not verified.'
+        empty = np.zeros(gray.shape, bool)
+        return empty, empty.copy(), 'The detected area is too small or too broad for automatic AI cleanup. Original retained; use a custom painted area instead.'
+    donors, content, _, _ = _repeated_regions(gray, labels, stats, band, cancelled)
+    import repeated_template
+    retained, learned = repeated_template.retained_source_strokes(gray, selected, donors, content, band, cancelled)
+    prefix = ('Full-band cleanup with supported original strokes and faint edges copied back afterward. '
+              if learned and retained.any() else 'Full-band cleanup; no reliable source-stroke restoration was found. ')
+    return selected, retained, prefix + 'AI reconstruction draft: letters, numbers, signatures and barcode data at overlaps remain unverified. Review every affected area before selecting this page. Complete removal and text accuracy are not verified.'
 
 
 def repeated_diagonal(image, cancelled=lambda: False):
@@ -295,39 +335,47 @@ def repeated_diagonal(image, cancelled=lambda: False):
         pattern_note='Partial cleanup: diagonal lettering removed in blank areas. The entire document-content area is preserved exactly, including overlapping watermark. This is not a fully clean copy.')
 
 
-def repeated_document(image, cancelled=lambda: False):
-    """Clean repeated diagonal glyphs between locally protected document rows.
-
-    No inpainting or invented lettering. Only isolated components fully inside
-    a detected band can be removed; components touching source ink stay intact.
-    """
-    a, gray, labels, stats, band, note = _repeated_detection(image, cancelled)
-    if band is None:
-        return unchanged(a, note)
+def _repeated_regions(gray, labels, stats, band, cancelled=lambda: False):
+    """Find isolated watermark donors without using document rows as samples."""
     h, w = gray.shape
     scale = w / 1200
     def px(n):
         return max(1, round(n * scale))
 
-    # Horizontal groups of actual glyphs anchor individual text rows. A whole
-    # body rectangle would retain all the watermarks between those rows too.
+    # Exclude the diagonal bands when finding horizontal rows. Otherwise the
+    # watermark joins adjacent lines into one huge component and no row passes
+    # the height check (common on dense deeds and their recording headers).
     ink = (gray < 220).astype('uint8')
-    horizontal = cv2.morphologyEx(ink, cv2.MORPH_CLOSE,
-                                 np.ones((1, px(27)), 'uint8'))
+    anchors = ink & (~band).astype('uint8')
+    horizontal = cv2.morphologyEx(anchors, cv2.MORPH_CLOSE,
+                                 np.ones((1, px(85)), 'uint8'))
     _, groups, boxes, _ = cv2.connectedComponentsWithStats(horizontal, connectivity=8)
-    rows = ((boxes[:, 2] >= px(65)) & (boxes[:, 3] >= px(5)) &
-            (boxes[:, 3] <= px(36)) & (boxes[:, 2] > boxes[:, 3] * 3))
+    rows = ((boxes[:, 2] >= px(35)) & (boxes[:, 3] >= px(5)) &
+            (boxes[:, 3] <= px(36)) & (boxes[:, 2] > boxes[:, 3] * 2))
     rows[0] = False
     if rows.sum() < 3:
-        return unchanged(a, 'Could not establish document text rows. Original retained.')
-    protected = cv2.dilate(rows[groups].astype('uint8'),
-                           np.ones((px(7), px(9)), 'uint8')) > 0
+        return np.zeros(gray.shape, bool), np.ones(gray.shape, bool), 0, 'Could not establish document text rows. Original retained.'
+    protected = np.zeros(gray.shape, bool)
+    for x, y, width, height, _ in boxes[rows]:
+        # A row may start/end inside the excluded band. Extend by a whole band
+        # crossing so obscured leading letters, account numbers and punctuation
+        # are retained as well, not only the intact words used as anchors.
+        margin = max(60, px(60))
+        protected[max(0,y-px(3)):min(h,y+height+px(3)),
+                  max(0,x-margin):min(w,x+width+margin)] = True
     # Large connected strokes include signatures, seals, rules and barcodes.
     structural = ((stats[:, 2] > px(40)) | (stats[:, 3] > px(32)) |
                   (stats[:, 4] > px(400) * scale))
     structural[0] = False
     protected |= cv2.dilate(structural[labels].astype('uint8'),
                             np.ones((px(5), px(5)), 'uint8')) > 0
+    # Enclosed stamps and handwriting can contain disconnected dots or letters
+    # entirely within a band. Protect their interiors, not just their connected
+    # outline, so those details cannot be mistaken for isolated watermark ink.
+    for x, y, width, height, _ in stats[structural]:
+        if height > px(32) and width > px(40):
+            protected[max(0,y-px(2)):min(h,y+height+px(2)),
+                      max(0,x-px(2)):min(w,x+width+px(2))] = True
     # Retain complete connected components whenever any part is protected or
     # outside the repeated bands. This also protects text/watermark crossings.
     eligible = ((stats[:, 2] <= px(32)) & (stats[:, 3] <= px(32)) &
@@ -336,17 +384,31 @@ def repeated_document(image, cancelled=lambda: False):
     eligible[0] = False
     remove = eligible[labels]
     if np.count_nonzero(remove) < 300 * scale * scale:
-        return unchanged(a, 'No isolated repeated lettering could be separated from document ink. Original retained.')
+        return np.zeros(gray.shape, bool), protected, int(rows.sum()), 'No isolated repeated lettering could be separated from document ink. Original retained.'
     # JPEG halos are pale and confined to one pixel around selected glyphs.
     edge = cv2.dilate(remove.astype('uint8'), np.ones((3, 3), 'uint8')) > 0
     remove |= edge & (gray >= 220) & ~protected & band
     if cancelled():
         raise InterruptedError('Cancelled')
+    return remove, protected, int(rows.sum()), ''
+
+
+def repeated_document(image, cancelled=lambda: False):
+    """Remove isolated glyphs; retain original ink at unresolved intersections."""
+    a, gray, labels, stats, band, note = _repeated_detection(image, cancelled)
+    if band is None:
+        return unchanged(a, note)
+    remove, protected, rows, note = _repeated_regions(gray, labels, stats, band, cancelled)
+    if note:
+        return unchanged(a, note)
     result = a.copy()
     result[remove] = 255
+    import repeated_template
+    result, learned = repeated_template.refine(gray, result, remove, band, cancelled)
     changed = np.any(result != a, axis=2)
     return result, changed, dict(
         scan_pattern=True, confidence=None, matched=True, partial=True,
         changed=int(changed.sum()), protected=int((protected & band & (gray < 220)).sum()),
-        reviewed=False, uncertain=True,
-        pattern_note='Partial cleanup: repeated diagonal lettering removed from margins and gaps between document rows. Text rows and connected signature, seal and barcode strokes are protected. Marks touching protected ink remain; inspect names, numbers and signatures before export.')
+        reviewed=False, uncertain=True, line_guides=rows, **learned,
+        residual_review_pixels=int((band & (result.min(2) < 220)).sum()),
+        pattern_note='Non-AI cleanup: isolated lettering and verified repeating watermark pixels removed. Intact blank-area copies guide an additional pass; dark strokes, faint text rows and signatures remain protected. Opaque overlaps may remain. No words are generated and exact recovery is not guaranteed; compare names, numbers and signatures before export.')
