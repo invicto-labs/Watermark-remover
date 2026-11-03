@@ -20,9 +20,25 @@ document.querySelector('#enquiry-copy').addEventListener('click', async () => {
 
 const header = document.querySelector('.site-header');
 if (header) {
-  const updateHeader = () => header.classList.toggle('is-scrolled', window.scrollY > 12);
+  const sections = [...header.querySelectorAll('nav a[href^="#"]')].map(link => ({
+    link,
+    section: document.getElementById(link.hash.slice(1)),
+  })).filter(item => item.section);
+  let currentLink;
+  const updateHeader = () => {
+    header.classList.toggle('is-scrolled', window.scrollY > 12);
+    const anchorOffset = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
+    const boundary = Math.max(header.offsetHeight + 36, anchorOffset + 21);
+    const current = sections.findLast(({ section }) => section.getBoundingClientRect().top <= boundary);
+    if (currentLink === current?.link) return;
+    currentLink?.removeAttribute('aria-current');
+    currentLink = current?.link;
+    currentLink?.setAttribute('aria-current', 'location');
+  };
   updateHeader();
   window.addEventListener('scroll', updateHeader, { passive: true });
+  window.addEventListener('resize', updateHeader);
+  window.addEventListener('pageshow', updateHeader);
 }
 if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
   const observer = new IntersectionObserver(entries => {
