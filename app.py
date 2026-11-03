@@ -37,6 +37,7 @@ import preble_scans
 import nassau_scans
 import scan_patterns
 import red_scans
+import cumberland_red
 import flat_gray_scans
 import repeated_copy
 import cleanup_suggestions
@@ -518,14 +519,16 @@ def process_page(job, index, options):
                 pixels = np.array(before)
                 changed = np.zeros(pixels.shape[:2], bool)
                 details = flat_gray_scans.unchanged_details('Page kept unchanged: this preset needs one supported RGB scan image. It does not threshold rendered text or ordinary grayscale pages.')
-        elif options['method'] == 'red_copy':
-            native = red_scans.prepare(job['source'], index, job['dir'], cancelled)
+        elif options['method'] in ('red_copy', 'cumberland_red'):
+            cumberland = options['method'] == 'cumberland_red'
+            native = red_scans.prepare(job['source'], index, job['dir'], cancelled, cumberland=cumberland)
             if native is not None:
                 target, details = native
                 pixels = np.array(render_page(target, 0))
                 changed = np.any(pixels != np.array(before), axis=2)
             else:
-                pixels, changed, details = red_scans.clean(before, cancelled)
+                clean_red = cumberland_red.clean if cumberland else red_scans.clean
+                pixels, changed, details = clean_red(before, cancelled)
         elif options['method'] == 'unofficial_copy':
             import gray_scans
             native = gray_scans.prepare(job['source'], index, job['dir'], BASE/'assets', cancelled)
@@ -1068,9 +1071,10 @@ def export_worker(job, keep):
             elif job['options']['method'] in dotted_scans.METHODS:
                 dotted_scans.write_clean(job['source'], job['dir']/'cleaned.pdf', keep,
                                         job['options']['method'], job['dir'], lambda:job['cancel'])
-            elif job['options']['method'] in ('unofficial_copy', 'red_copy', 'flat_gray_copy', 'repeated_copy'):
+            elif job['options']['method'] in ('unofficial_copy', 'red_copy', 'cumberland_red', 'flat_gray_copy', 'repeated_copy'):
                 import gray_scans
                 module, native_key = {'red_copy': (red_scans, 'native_red'),
+                                      'cumberland_red': (red_scans, 'native_red'),
                                       'flat_gray_copy': (flat_gray_scans, 'native_flat_gray'),
                                       'repeated_copy': (repeated_copy, 'native_repeated_copy'),
                                       'unofficial_copy': (gray_scans, 'native_gray')}[job['options']['method']]
@@ -1078,7 +1082,8 @@ def export_worker(job, keep):
                 native = [i for i in keep if results.get(i, {}).get(native_key)]
                 other = [i for i in keep if i not in native]
                 target = job['dir']/('native-scan-export.pdf' if other else 'cleaned.pdf')
-                module.write_clean(job['source'], target, native, job['dir'], lambda:job['cancel'])
+                extra = {'cumberland': True} if job['options']['method'] == 'cumberland_red' else {}
+                module.write_clean(job['source'], target, native, job['dir'], lambda:job['cancel'], **extra)
                 if other:
                     edits = {i: (original(job, i), image_path(job, i, True)) for i in other}
                     write_pdf(target, job['dir']/'cleaned.pdf', edits, lambda:job['cancel'])

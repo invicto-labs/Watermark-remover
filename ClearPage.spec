@@ -22,6 +22,7 @@ if billing_path.exists() and not payment_ready(configuration(billing_path)) and 
 datas = [(str(root/'assets/repeated-copy.png'), 'assets'), (str(root/'static'), 'static'), (str(root/'assets/clearpage.ico'), 'assets'), (str(root/'assets/huntington.npy'), 'assets'),
          (str(root/'assets/nassau-border.npy'), 'assets'),
          (str(root/'assets/preble-unofficial.npz'), 'assets'),
+         (str(root/'assets/cumberland-red.npz'), 'assets'),
          (str(root/'assets/unofficial-copy-1994.npz'), 'assets'),
          (str(root/'assets/unofficial-copy-1019.npz'), 'assets'),
          (str(root/'assets/unofficial-copy-1032.npz'), 'assets'),

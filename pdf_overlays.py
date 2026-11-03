@@ -14,6 +14,11 @@ from pypdf.generic import ContentStream, DictionaryObject, NameObject, DecodedSt
 COOK_TEXT = {'UNOFFICIAL COPY', "Property of Cook County Clerk's Office"}
 # Fingerprint of the complete vector overlay resource tree, excluding compression.
 OKCOUNTY_SIGNATURES = {'718b3e476d6fb4749ee58c0538191fc01cc5cb4a77831ff86d0ab21841277546'}
+HARRISON_MAP_CONTENT = 'd3160b3cb9467738b9f1b19f438d1a8cf39431207149a06f296c37cbc0653d8c'
+HARRISON_MAP_IMAGES = {
+    '8daa2ad4086f56e16b682d7f1a9999ee0a67b143450009375167c2f0c5f20f19',
+    '8e57fbcf158db575f0c0ced20e31ecc122c00daded1f8d49abc14857ef27ab56',
+}
 
 
 def resolved(value):
@@ -168,11 +173,29 @@ def apdf_ranges(ops, resources):
     return [] if level else ranges
 
 
+def harrison_map_overlay(stream, xobjects):
+    # The top image contains map content as well as the stamp. Remove it only
+    # when the drawing instructions and all underlying scans are verified.
+    names = ('/Image1', '/Image2', '/Image3')
+    if set(xobjects) != set(names):
+        return False
+    if hashlib.sha256(stream.get_data()).hexdigest() != HARRISON_MAP_CONTENT:
+        return False
+    try:
+        signatures = ''.join(form_signature(xobjects[name]) for name in names)
+    except (ValueError, RecursionError):
+        return False
+    return hashlib.sha256(signatures.encode()).hexdigest() in HARRISON_MAP_IMAGES
+
+
 def rewrite_node(node, resources, owner, writer=None, depth=0, ancestors=()):
     if depth > 16 or id(node) in ancestors:
         return None, resources, []
     resources = resolved(resources)
-    ops = ContentStream(node, owner).operations
+    stream = ContentStream(node, owner)
+    xobjects = resolved(resources.get('/XObject', {}))
+    map_overlay = depth == 0 and harrison_map_overlay(stream, xobjects)
+    ops = stream.operations
     cook = cook_ranges(ops, resources)
     apdf = apdf_ranges(ops, resources)
     ranges = cook + apdf
@@ -180,12 +203,15 @@ def rewrite_node(node, resources, owner, writer=None, depth=0, ancestors=()):
     labels = ['Cook County'] * len(cook) + [label for _, _, label in apdf]
     updated = []; removed_names = set()
     new_resources = DictionaryObject(dict(resources))
-    xobjects = resolved(resources.get('/XObject', {}))
     new_xobjects = DictionaryObject(dict(xobjects))
     for i, (args, op) in enumerate(ops):
         if i in remove:
             continue
         if op == b'Do' and args[0] in xobjects:
+            if map_overlay and args[0] == '/Image3':
+                labels.append('Harrison County map')
+                removed_names.add(args[0])
+                continue
             child = xobjects[args[0]].get_object()
             if child.get('/Subtype') == '/Form':
                 try:

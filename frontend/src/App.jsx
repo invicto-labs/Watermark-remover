@@ -13,6 +13,7 @@ import CleanupSuggestions from './CleanupSuggestions';
 const presets = [
   { id: 'repeated_copy', title: 'Small repeated copy', description: 'Small gray copy words repeated across the scan. Review dark areas after cleanup.', image: 'repeated-copy', tag: 'Scans' },
   { id: 'flat_gray_copy', title: 'Light gray · black ink scans', description: 'Repeated “Unofficial Copy / Gallia County” marks. Keeps original black pixels.', image: 'flat-gray', tag: 'Black ink scans' },
+  { id: 'cumberland_red', title: 'Cumberland red watermark', description: 'Refines faint traces from the pale red diagonal Cumberland stamp while protecting dark ink.', image: 'red-copy', tag: 'County scans' },
   { id: 'red_copy', title: 'Red “Not an Official Copy”', description: 'Pale red diagonal lettering on black-and-white scans. No AI needed.', image: 'red-copy', tag: 'Red marks' },
   { id: 'gemini_draft', title: 'Gemini AI draft · cloud', description: 'Try one difficult page with your Gemini key. Requires review.', image: 'repeated-diagonal', tag: 'Optional cloud' },
   { id: 'dotted_document', title: 'Dotted document', description: 'Diagonal dotted lettering on scanned documents.', image: 'dotted-document', tag: 'Documents' },

@@ -11,10 +11,21 @@ from dotted_scans import replace_image
 from gray_scans import scan_object
 
 MAX_PIXELS = 12_000_000
-CACHE = 'native-red-v2-ink'
+CACHE = 'native-red-v3-cumberland'
+CUMBERLAND_CACHE = 'native-cumberland-red-v1'
 
 
 def clean(image, cancelled=lambda: False):
+    if cancelled(): raise InterruptedError('Cancelled')
+    if image.width * image.height > MAX_PIXELS:
+        raise ValueError('This scan is too large for red-watermark cleanup.')
+    import cumberland_red
+    if cumberland_red.matches(image):
+        return cumberland_red.clean(image, cancelled)
+    return clean_general(image, cancelled)
+
+
+def clean_general(image, cancelled=lambda: False):
     if cancelled(): raise InterruptedError('Cancelled')
     if image.width * image.height > MAX_PIXELS:
         raise ValueError('This scan is too large for red-watermark cleanup.')
@@ -79,9 +90,10 @@ def clean(image, cancelled=lambda: False):
     return result, changed, details
 
 
-def prepare(source, index, directory, cancelled=lambda: False):
+def prepare(source, index, directory, cancelled=lambda: False, *, cumberland=False):
     if cancelled(): raise InterruptedError('Cancelled')
-    target = Path(directory)/f'{index}-{CACHE}.pdf'
+    cache = CUMBERLAND_CACHE if cumberland else CACHE
+    target = Path(directory)/f'{index}-{cache}.pdf'
     metadata = target.with_suffix('.json')
     if target.exists() and metadata.exists():
         return target, json.loads(metadata.read_text())
@@ -92,7 +104,11 @@ def prepare(source, index, directory, cancelled=lambda: False):
     image = page.images[0].image.convert('RGB')
     if image.size != (int(obj['/Width']), int(obj['/Height'])):
         raise ValueError('The decoded scan dimensions do not match the PDF.')
-    result, changed, details = clean(image, cancelled)
+    if cumberland:
+        from cumberland_red import clean as refine
+        result, changed, details = refine(image, cancelled)
+    else:
+        result, changed, details = clean(image, cancelled)
     writer = PdfWriter(); writer.add_page(page)
     if changed.any():
         cloned = writer.pages[0]['/Resources']['/XObject'][name].get_object()
@@ -113,11 +129,12 @@ def prepare(source, index, directory, cancelled=lambda: False):
     return target, details
 
 
-def write_clean(source, target, keep, directory, cancelled=lambda: False):
+def write_clean(source, target, keep, directory, cancelled=lambda: False, *, cumberland=False):
+    cache = CUMBERLAND_CACHE if cumberland else CACHE
     writer = PdfWriter(); writer.clone_document_from_reader(read_pdf(source))
     for index in keep:
         if cancelled(): raise InterruptedError('Cancelled')
-        path = Path(directory)/f'{index}-{CACHE}.pdf'
+        path = Path(directory)/f'{index}-{cache}.pdf'
         found = scan_object(read_pdf(path).pages[0])
         if found is None: raise ValueError('The red scan cache is invalid. Process again.')
         name, obj = found
