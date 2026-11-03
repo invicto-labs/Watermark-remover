@@ -30,6 +30,10 @@ def validate(folder, tag):
     checks=report['checks']
     if {x.get('mode') for x in checks} != expected or any(x.get('locked') is not True for x in checks):
         raise ValueError('Extracted EXE security checks are incomplete.')
+    desktop = report.get('desktop_check')
+    if (not isinstance(desktop, dict) or desktop.get('renderer') != 'edgechromium'
+            or desktop.get('ui_ready') is not True or desktop.get('download_marks') is not True):
+        raise ValueError('The downloaded desktop window must pass its launch check.')
     return archive
 
 

@@ -65,3 +65,6 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='ClearPage',
           console=False, strip=False, upx=False, icon=str(root/'assets/clearpage.ico'), version=str(version_path))
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='ClearPage')
+# The CLR reads the host configuration beside the executable, outside _internal.
+import shutil
+shutil.copy2(root/'assets/ClearPage.exe.config', Path(coll.name)/'ClearPage.exe.config')

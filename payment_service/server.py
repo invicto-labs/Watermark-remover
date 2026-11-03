@@ -83,7 +83,7 @@ def create_app(settings=None):
         response.headers['Content-Security-Policy'] = (
             "default-src 'self'; script-src 'self' https://checkout.razorpay.com; "
             "style-src 'self' 'unsafe-inline'; frame-src https://*.razorpay.com; "
-            "connect-src 'self' https://*.razorpay.com; img-src 'self' data: https://*.razorpay.com; "
+            "connect-src 'self' https://api.github.com https://*.razorpay.com; img-src 'self' data: https://*.razorpay.com; "
             "frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
         return response
 

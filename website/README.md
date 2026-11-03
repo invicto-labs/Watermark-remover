@@ -1,5 +1,19 @@
 # ClearPage local download website
 
+To preview with an explicitly built testing ZIP, run from the repository root:
+
+```powershell
+.venv/Scripts/python.exe scripts/preview_website.py --archive release-assets/ClearPage-Windows-x64.zip
+```
+
+Open `http://127.0.0.1:5173/`. Download buttons serve that ZIP locally and label it
+as a preview with payments disabled. This loopback-only helper is separate from
+the Render entry point and does not publish or distribute a customer release.
+On the hosted website, buttons check GitHub for the uploaded stable Windows ZIP
+before navigating. Missing releases and network failures display a message on
+the website instead of navigating to a GitHub 404. The first public release is
+still required for customer downloads.
+
 Plan: INR 999 for **two** distinct PDF documents. Seller: Raysan sure.
 Support: sales@zynape.com.
 

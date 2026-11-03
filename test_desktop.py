@@ -43,10 +43,10 @@ class DesktopTests(unittest.TestCase):
         previous=(app.SERVER,app.HOST,app.WORK['stop'])
         argv=['ClearPage.exe']+(['--test-info',str(test_info)] if test_info else [])
         try:
-            with patch.object(sys,'argv',argv),patch.object(app,'make_server',return_value=server) as make,patch.object(app.threading,'Thread') as thread,patch.object(app,'cleanup'),patch('webbrowser.open') as browser,patch.object(desktop_shell,'show_startup_error') as error,patch.object(desktop_shell,'open_window',side_effect=RuntimeError('missing runtime') if fail else None) as window:
+            with patch.object(sys,'argv',argv),patch.object(app,'make_server',return_value=server) as make,patch.object(app.threading,'Thread') as thread,patch.object(app,'cleanup'),patch('webbrowser.open') as browser,patch.object(desktop_shell,'write_startup_log',return_value=Path('startup-error.log')),patch.object(desktop_shell,'show_startup_error') as error,patch.object(desktop_shell,'open_window',side_effect=RuntimeError('missing runtime') if fail else None) as window:
                 if fail:
                     with self.assertRaises(SystemExit):app.main()
-                    error.assert_called_once()
+                    error.assert_called_once_with(Path('startup-error.log'))
                 else:app.main()
                 browser.assert_not_called()
                 make.assert_called_once_with('127.0.0.1',0,app.app,threaded=True,request_handler=app.QuietHandler)

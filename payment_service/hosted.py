@@ -15,7 +15,7 @@ def hosted_app():
 
     @app.get('/<name>')
     def public_file(name):
-        if name not in ('policies.html', 'style.css', 'enquiry.js'):
+        if name not in ('policies.html', 'style.css', 'enquiry.js', 'download.js'):
             return jsonify(error='Not found'), 404
         return send_from_directory(website, name)
 

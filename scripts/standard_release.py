@@ -33,7 +33,7 @@ def public_config(preview=False):
     return config
 
 
-def run(preview=False, dist_dir=None, work_dir=None):
+def run(preview=False, dist_dir=None, work_dir=None, assets_dir=None):
     if os.environ.get('CLEARPAGE_BUILD_OWNER_TEST') == '1':
         raise ValueError('Private owner test builds cannot use the customer release pipeline.')
     value = version()
@@ -50,14 +50,14 @@ def run(preview=False, dist_dir=None, work_dir=None):
     bundle = dist_dir/'ClearPage'
     collect_licenses(bundle, standard=True)
     (bundle/'START-HERE.txt').write_text(
-        f'ClearPage {value} Standard — Windows x64\n\nExtract the complete ZIP and open ClearPage.exe. Keep _internal beside it.\n'
+        f'ClearPage {value} Standard — Windows x64\n\nExtract the complete ZIP and open ClearPage.exe. Keep _internal and ClearPage.exe.config beside it.\n'
         'Internet is required for online credits and document authorization.\n'
         'ClearPage opens in its own desktop window. Windows 10/11 x64 and Microsoft Edge WebView2 Runtime are required.\n'
         'If WebView2 is missing, install it from https://developer.microsoft.com/microsoft-edge/webview2/ then reopen ClearPage.\n'
         'Update into a new folder after closing the old app. Preserve your existing ClearPage app profile; never delete it to update.\n'
         'Optional LaMa/ONNX models are not included. This executable is unsigned. Review cleanup output carefully.\n'
         + ('Preview: payments are not enabled until the seller finishes configuration.\n' if preview else ''), encoding='utf-8')
-    assets = ROOT/'release-assets'
+    assets = Path(assets_dir or ROOT/'release-assets').resolve()
     assets.mkdir(exist_ok=False)
     archive = assets/f'ClearPage-{value}-Windows-x64.zip'
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as output:
@@ -69,10 +69,11 @@ def run(preview=False, dist_dir=None, work_dir=None):
         if any(n.endswith(('.pem','.sqlite3','settings.json')) or '/payment_service/' in n for n in source.namelist()):
             raise ValueError('Private seller file found in customer package.')
         source.extractall(extracted)
-    from scripts.standard_smoke import check_package
+    from scripts.standard_smoke import check_package, check_desktop
     checks = check_package(extracted/'ClearPage', value)
+    desktop_check = check_desktop(extracted/'ClearPage')
     report = dict(version=value, edition='Standard', preview=preview,
-                  package=archive.name, sha256=digest(archive), checks=checks,
+                  package=archive.name, sha256=digest(archive), checks=checks, desktop_check=desktop_check,
                   commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
                   publisher_signature='unsigned', limitation='Simulated payment/source regressions do not establish live Razorpay activation.')
     report['owner_test'] = False
@@ -95,5 +96,6 @@ if __name__ == '__main__':
     parser.add_argument('--preview',action='store_true')
     parser.add_argument('--dist-dir')
     parser.add_argument('--work-dir')
+    parser.add_argument('--assets-dir')
     args=parser.parse_args()
-    run(args.preview,args.dist_dir,args.work_dir)
+    run(args.preview,args.dist_dir,args.work_dir,args.assets_dir)

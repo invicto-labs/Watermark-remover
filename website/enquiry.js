@@ -17,3 +17,24 @@ document.querySelector('#enquiry-copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(document.querySelector('#enquiry-preview').value); document.querySelector('#enquiry-status').textContent = 'Copied. Paste the text into an email to sales@zynape.com and send it.'; }
   catch { document.querySelector('#enquiry-status').textContent = 'Select and copy the email draft below, then send it to sales@zynape.com.'; document.querySelector('#enquiry-preview').focus(); document.querySelector('#enquiry-preview').select(); }
 });
+
+const header = document.querySelector('.site-header');
+if (header) {
+  const updateHeader = () => header.classList.toggle('is-scrolled', window.scrollY > 12);
+  updateHeader();
+  window.addEventListener('scroll', updateHeader, { passive: true });
+}
+if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  const observer = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    }
+  }, { threshold: 0.08 });
+  document.querySelectorAll('.product-section > div, .workflow > div, .workflow li, .pricing > *, .custom-section > *, .faq, .closing h2').forEach(element => {
+    element.classList.add('will-reveal');
+    observer.observe(element);
+  });
+}

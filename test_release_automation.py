@@ -13,13 +13,14 @@ class AutomatedReleaseTests(unittest.TestCase):
         self.archive=self.root/'ClearPage-3.0-Windows-x64.zip';self.archive.write_bytes(b'verified artifact')
         (self.root/'ClearPage-Windows-x64.zip').write_bytes(self.archive.read_bytes())
         self.report=dict(version='3.0',preview=False,sha256=hashlib.sha256(self.archive.read_bytes()).hexdigest(),checks=[dict(mode=m,locked=True) for m in ('normal','environment-override','changed-config','missing-config')])
+        self.report['desktop_check']=dict(renderer='edgechromium',ui_ready=True,download_marks=True)
         self.write_report()
         (self.root/'release-notes.md').write_text('Notes')
     def tearDown(self):self.temp.cleanup()
     def write_report(self):(self.root/'ClearPage-3.0-build-report.json').write_text(json.dumps(self.report))
     def test_only_verified_production_artifacts_can_publish(self):
         self.assertEqual(publish_release.validate(self.root,'v3.0'),self.archive)
-        for change in (dict(preview=True),dict(owner_test=True),dict(checks=[]),dict(sha256='wrong'),dict(version='4.0')):
+        for change in (dict(preview=True),dict(owner_test=True),dict(checks=[]),dict(sha256='wrong'),dict(version='4.0'),dict(desktop_check=None),dict(desktop_check=dict(renderer='mshtml',ui_ready=True,download_marks=True)),dict(desktop_check=dict(renderer='edgechromium',ui_ready=False,download_marks=True)),dict(desktop_check=dict(renderer='edgechromium',ui_ready=True,download_marks=False))):
             original=dict(self.report);self.report.update(change);self.write_report()
             with self.assertRaises(ValueError):publish_release.validate(self.root,'v3.0')
             self.report=original

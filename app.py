@@ -1269,8 +1269,10 @@ def main():
                 json.dumps({'url': url}), encoding='utf-8')
         open_window(url)
     except Exception:
-        from desktop_shell import show_startup_error
-        show_startup_error()
+        from desktop_shell import show_startup_error, write_startup_log
+        log_path = write_startup_log()
+        if '--desktop-smoke-info' not in sys.argv:
+            show_startup_error(log_path)
         raise SystemExit(1)
     finally:
         WORK['stop'] = True

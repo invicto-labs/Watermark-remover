@@ -78,6 +78,15 @@ This does not deploy Render; auto-deploy remains off and no deploy hook was adde
 
 ## Verification limits
 
+The Standard package includes `ClearPage.exe.config` beside the EXE so its .NET
+desktop libraries load after browser download and Explorer extraction retain
+Internet-zone marks. Keep this file with the executable and `_internal` folder.
+The setting is scoped to the ClearPage process. Packaging checks now mark the
+extracted DLLs as downloaded, open the real WebView2 window, wait for the React
+interface to render, and close it automatically. Publication requires this check
+in addition to the backend and billing checks. Startup failures are recorded in
+`%LOCALAPPDATA%/ClearPage/startup-error.log`.
+
 Local checks can validate workflow syntax, unit-test release and update behavior,
 and run the Windows build/EXE verification. Only a future approved tag push can
 prove the GitHub-hosted runner and publication permissions work end to end. No

@@ -23,6 +23,23 @@ def open_window(url):
     # pywebview can otherwise fall back to MSHTML even when Edge was requested.
     # This synchronous event cancels window creation before that fallback appears.
     window.events.initialized += require_supported_renderer
+    if '--desktop-smoke-info' in sys.argv:
+        import json
+        import time
+        info = Path(sys.argv[sys.argv.index('--desktop-smoke-info')+1])
+        def verify_loaded_page():
+            try:
+                deadline = time.monotonic()+15
+                while time.monotonic() < deadline:
+                    ready = window.evaluate_js("Boolean(document.querySelector('#root button'))")
+                    if ready:
+                        info.write_text(json.dumps(dict(renderer=webview.renderer,
+                            title=window.evaluate_js('document.title'), ui_ready=True)), encoding='utf-8')
+                        break
+                    time.sleep(.1)
+            finally:
+                window.destroy()
+        window.events.loaded += verify_loaded_page
     webview.start(gui='edgechromium', debug=False, private_mode=True,
                   icon=str(Path(__file__).resolve().parent/'assets/clearpage.ico'))
     if not renderer_state['supported']:
@@ -34,12 +51,27 @@ def set_app_identity():
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('RaysanSure.ClearPage')
 
 
-def show_startup_error():
+def write_startup_log():
+    import os
+    import traceback
+    path = Path(os.environ.get('LOCALAPPDATA', str(Path.home())))/'ClearPage'/'startup-error.log'
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(traceback.format_exc(), encoding='utf-8')
+        return path
+    except OSError:
+        return None
+
+
+def show_startup_error(log_path=None):
     message = ('ClearPage could not open its desktop window.\n\n'
                'Extract the complete ZIP, keeping _internal beside ClearPage.exe. '
+               'Keep ClearPage.exe.config beside it too. '
                'Windows 10/11 x64 and Microsoft Edge WebView2 Runtime are required.\n\n'
                'WebView2: https://developer.microsoft.com/microsoft-edge/webview2/\n'
                'If the problem continues, contact sales@zynape.com.')
+    if log_path:
+        message += f'\n\nStartup details: {log_path}'
     if sys.platform == 'win32':
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, message, 'ClearPage — unable to start', 0x10)

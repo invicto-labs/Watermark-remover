@@ -13,7 +13,7 @@ class HostingTests(unittest.TestCase):
         try:
             with patch.dict(os.environ, {**fixture.settings, 'CLEARPAGE_DOWNLOAD_DIR':str(fixture.root/'downloads')}):
                 client = hosted_app().test_client()
-                for path in ('/','/policies.html','/style.css','/enquiry.js','/health'):
+                for path in ('/','/policies.html','/style.css','/enquiry.js','/download.js','/health'):
                     response = client.get(path)
                     self.assertEqual(response.status_code, 200, path)
                     response.close()

@@ -9,6 +9,37 @@ import urllib.error
 import urllib.request
 
 
+def check_desktop(bundle):
+    """Launch the actual packaged GUI with downloaded-file marks retained."""
+    bundle = Path(bundle)
+    if not (bundle/'ClearPage.exe.config').is_file():
+        raise RuntimeError('The desktop .NET configuration is missing.')
+    # Mimic a browser download followed by Windows Explorer ZIP extraction.
+    for file in bundle.rglob('*'):
+        if file.is_file() and file.suffix.lower() in ('.dll', '.exe', '.config'):
+            Path(str(file)+':Zone.Identifier').write_text('[ZoneTransfer]\nZoneId=3\n', encoding='ascii')
+    with tempfile.TemporaryDirectory(prefix='ClearPage-desktop-check-') as folder:
+        root = Path(folder)
+        info = root/'desktop.json'
+        env = {**os.environ, 'LOCALAPPDATA':str(root/'local'), 'CLEARPAGE_DATA_DIR':str(root/'profile')}
+        process = subprocess.Popen([str(bundle/'ClearPage.exe'), '--desktop-smoke-info', str(info)], env=env,
+                                   creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            process.wait(timeout=60)
+            if process.returncode or not info.is_file():
+                log = root/'local/ClearPage/startup-error.log'
+                detail = log.read_text(encoding='utf-8') if log.is_file() else 'The UI did not finish loading.'
+                raise RuntimeError('Downloaded desktop startup failed: '+detail)
+            result = json.loads(info.read_text(encoding='utf-8'))
+            if result.get('renderer') != 'edgechromium' or result.get('ui_ready') is not True:
+                raise RuntimeError('The packaged desktop UI did not load with WebView2.')
+            return {**result, 'download_marks':True}
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=10)
+
+
 def check_package(bundle, version):
     exe = Path(bundle)/'ClearPage.exe'
     config = Path(bundle)/'_internal/billing.json'
