@@ -56,6 +56,21 @@ class SuggestionTests(unittest.TestCase):
         self.assertEqual(result.json['items'],[])
         self.assertEqual(result.json['skipped_pages'],[])
 
+    def test_nassau_suggestion_does_not_apply_cleanup_or_change_options(self):
+        from test_nassau_scans import fixture
+        key = self.upload([Image.fromarray(fixture())])
+        job = app.JOBS[key]
+        source = job['source'].read_bytes()
+        options = job['options']
+        response = self.client.get('/api/suggestions/'+key)
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual([(item['method'], item['pages']) for item in response.json['items']],
+                         [('nassau_unofficial', [1])])
+        self.assertEqual(job['source'].read_bytes(), source)
+        self.assertEqual(job['options'], options)
+        self.assertEqual(job['results'], [])
+        self.assertFalse(list(job['dir'].glob('*after*')))
+
     def test_failed_page_allows_manual_workflow(self):
         key=self.upload([Image.new('RGB',(600,800),'white')])
         with patch.object(app,'original',side_effect=OSError('unreadable preview')):
@@ -77,7 +92,7 @@ class SuggestionTests(unittest.TestCase):
     def test_suggestion_examples_are_served(self):
         for name in ('red-copy.svg','flat-gray.svg','polarity.svg','overlay.webp',
                      'unofficial-copy.webp','huntington.webp','repeated-diagonal.webp',
-                     'dotted-document.webp','dotted-map.webp'):
+                     'dotted-document.webp','dotted-map.webp','nassau.svg'):
             with self.client.get('/static/type-'+name) as response:
                 self.assertEqual(response.status_code,200,name)
 

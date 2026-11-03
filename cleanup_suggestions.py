@@ -1,10 +1,12 @@
 """Read-only, bounded preset suggestions. No AI calls, edits, or exports."""
 from PIL import Image
+import numpy as np
 from pdf_overlays import read_pdf
 import repeated_copy
 import flat_gray_scans
 import red_scans
 import gray_scans
+import nassau_scans
 import scan_patterns
 import dotted_scans
 import page_polarity
@@ -12,9 +14,11 @@ import page_polarity
 REASONS = {
     'repeated_copy': 'Small gray copy words repeat across the page. Review overlaps and dark headers.',
     'flat_gray_copy': 'Repeated light-gray marks over pure black ink, like “Unofficial Copy”.',
+    'cumberland_red': 'Matches the pale diagonal Cumberland watermark. Use this preset to refine faint traces.',
     'red_copy': 'Large pale-red diagonal lettering, like “Not an Official Copy”.',
     'overlay': 'Supported separate PDF text or watermark objects were found.',
     'unofficial_copy': 'Gray “Unofficial Copy” lettering matches the supported pattern. Cleanup adjusts to each page.',
+    'nassau_unofficial': 'Pale diagonal lettering and a repeated square border match the Nassau scan type. Review faint ink after cleanup.',
     'polarity': 'Dark paper with light text looks like a negative scan.',
     'huntington_background': 'The scanned watermark matches the Huntington County pattern.',
     'repeated_document': 'Repeated diagonal lettering was detected. Overlapping text needs review.',
@@ -43,11 +47,15 @@ def suggest(source, count, overlays, image_for, assets):
             gray_found = gray_scans.scan_object(page)
             native = page.images[0].image.convert('RGB') if found or gray_found else None
             if native is not None:
+                if gray_found and nassau_scans.clean_pixels(np.array(native))[1]['matched']:
+                    add('nassau_unofficial', index)
+                    continue
                 if found and flat_gray_scans.clean(native)[2]['matched']:
                     add('flat_gray_copy', index)
                     continue
-                if red_scans.clean(native)[2]['matched']:
-                    add('red_copy', index)
+                red_details = red_scans.clean(native)[2]
+                if red_details['matched']:
+                    add('cumberland_red' if red_details.get('cumberland_refined') else 'red_copy', index)
                     continue
                 if gray_found and scan_patterns.unofficial_copy(native, assets)[2]['matched']:
                     add('unofficial_copy', index)
@@ -58,9 +66,11 @@ def suggest(source, count, overlays, image_for, assets):
                 add('polarity', index)
                 continue
             # Color cleanup also supports rendered pages with other PDF layouts.
-            if native is None and red_scans.clean(rendered)[2]['matched']:
-                add('red_copy', index)
-                continue
+            if native is None:
+                red_details = red_scans.clean(rendered)[2]
+                if red_details['matched']:
+                    add('cumberland_red' if red_details.get('cumberland_refined') else 'red_copy', index)
+                    continue
             dots = dotted_scans.scan_object(page)
             if dots and int(dots[1]['/Width'])*int(dots[1]['/Height']) <= 12_000_000:
                 pixels = dotted_scans.native_pixels(page, dots[1], rendered)

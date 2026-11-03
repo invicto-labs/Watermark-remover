@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from vendor.purescan_core import invert_multiply
 
-METHODS = ('huntington_background', 'unofficial_copy', 'red_copy', 'flat_gray_copy', 'repeated_copy', 'repeated_diagonal', 'repeated_diagonal_ai', 'repeated_document')
+METHODS = ('huntington_background', 'unofficial_copy', 'red_copy', 'cumberland_red', 'flat_gray_copy', 'repeated_copy', 'repeated_diagonal', 'repeated_diagonal_ai', 'repeated_document')
 MAX_PIXELS = 12_000_000
 GRAY_LAYOUTS = (1019, 1032, 1994, 2019, 2024, 2029, 2536, 2538)
 

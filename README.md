@@ -1,4 +1,4 @@
-# ClearPage 2.2
+# ClearPage 2.3
 
 A local Windows application for watermark cleanup in PDFs and scanned images.
 
@@ -243,6 +243,23 @@ serifs instead of retaining a full fringe around every letter. It reduces attach
 halftone marks such as those beneath "Situated" and beside "97". Reprocess pages
 to use the refinement; earlier native preview caches are ignored. Fine overlapping
 ink remains ambiguous, so this is not a guarantee of pixel-perfect text recovery.
+
+## Nassau County - pale lettering and tiled border
+
+Select **Nassau · Unofficial Copy** for pale diagonal outline lettering inside a
+repeating square border, then preview, clean, compare and select pages to export.
+Both border repetition and diagonal pale ink must match before a page is changed.
+Blank, unmatched and unsupported pages stay original, including pages mixed into
+the same search package. Only simple, unrotated, full-page RGB portrait scans are
+supported. Native image resolution, page geometry and all pages are preserved.
+
+This preset lightens neutral pale pixels in the detected diagonal region and
+border while retaining dark ink and its immediate edges. Faint gray document
+content inside those regions can also be affected: review light text, signatures,
+numbers and intersections before selecting the result. No OCR, invented text or
+AI reconstruction is used. The example is synthetic; the detector template
+contains only an isolated geometric watermark tile. Customer documents, document
+text and personal file paths are not bundled.
 
 ## Gray watermark cleanup
 
