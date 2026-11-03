@@ -1,7 +1,7 @@
 @import "tailwindcss";
 .admin-dialog input{width:100%;border:1px solid #ded8d0;border-radius:8px;padding:12px;margin:6px 0 18px;font:inherit;background:white;color:#302d29}.admin-dialog input:focus{outline:2px solid #cc3727;outline-offset:2px}.admin-active{background:#eff8f0!important;border-color:#cbdcce!important}.admin-trigger{white-space:nowrap;font-size:12px!important}
 .navbar{gap:16px;flex-wrap:wrap;padding-top:14px;padding-bottom:14px}.navbar .billing-trigger{margin-left:0}
-.update-trigger { margin-left: auto; white-space: nowrap; font-size: 12px; }
+.update-trigger { margin-left: 0; white-space: nowrap; font-size: 12px; }
 .update-notice { display: flex; align-items: center; gap: 18px; padding: 16px 20px; border: 1px solid #ded8cc; border-radius: 12px; margin-bottom: 20px; background: #fffdf8; font-size: 13px; }
 .update-ready { border-color: #b4c7b7; background: #f2f8f2; }
 .update-notice p { margin: 6px 0 0; line-height: 1.6; color: #6b665e; }
@@ -55,6 +55,8 @@
   .app-shell { @apply min-h-screen; }
   .sidebar { @apply fixed inset-y-0 left-0 z-20 flex w-[232px] flex-col border-r border-[#e8e6e5] bg-[#f6f4f3] px-5 py-8; }
   .brand { @apply flex items-center gap-2.5 text-[27px] font-semibold tracking-[-1.3px]; }
+  .brand-symbol { line-height: 1; }
+  .brand-accent { color: #ad3326; }
   .brand-mark { @apply flex h-9 w-9 items-center justify-center rounded-xl bg-brand text-white; }
   .brand-dot { @apply -ml-2 text-[#e4483c]; }
   .brand-link { @apply ml-2 block; }
@@ -567,31 +569,7 @@
 @media (max-width: 600px) { .review-selection-group { justify-content: center; width: 100%; gap: 6px; }.review-page-toolbar .review-current-choice { width: auto; }.review-current-choice .review-selection-switch { display: block; }.review-current-choice .review-selection-label { display: inline; } }
 
 /* Progress belongs in the navbar, leaving the workspace for the document. */
-.desktop-nav-actions { display: contents; }
-.navbar .app-menu-toggle { display: none; }
-.app-menu-drawer {
-  position: fixed;
-  inset: 0 0 0 auto;
-  margin: 0;
-  width: min(340px, 90vw);
-  max-width: none;
-  height: 100dvh;
-  max-height: none;
-  padding: 0;
-  background: white;
-  color: #302b2a;
-}
-.app-menu-drawer::backdrop { background: #302b2a66; }
-.app-menu-drawer[open] { animation: app-menu-enter .25s ease-out; }
-@keyframes app-menu-enter { from { transform: translateX(100%); } }
-.app-menu-content { min-height: 100%; padding: 20px; }
-.app-menu-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; font-weight: 700; }
-.app-menu-content nav { display: grid; gap: 10px; }
-.app-menu-content nav .button { justify-content: flex-start; min-height: 44px; }
-
 @media (max-width: 1100px) {
-  .desktop-nav-actions { display: none; }
-  .navbar .app-menu-toggle { display: inline-flex; margin-left: auto; min-width: 44px; min-height: 44px; }
   .review-mode > .main-shell > .navbar { display: flex; min-height: 64px; }
   .review-mode .pdf-review { height: calc(100dvh - 88px); }
 }
@@ -612,10 +590,30 @@
 .navbar .stepper { margin: 0 0 0 auto; gap: 16px; }
 .workspace-mode .navbar .stepper { margin-bottom: 0; }
 .workspace-mode .workspace-content { --editor-height: calc(100dvh - 161px); }
-@media (max-width: 700px) {
-  .navbar { flex-wrap: wrap; gap: 16px; padding: 16px 20px; }
-  .navbar .stepper { width: 100%; margin: 0; gap: 8px; justify-content: center; padding-top: 12px; border-top: 1px solid #eee7e2; }
-  .navbar .step-line { flex: 1; max-width: 40px; }
+@media (max-width: 1100px) {
+  .navbar, .workspace-mode .navbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 16px;
+    padding: 10px clamp(16px, 4vw, 28px);
+  }
+  .navbar .update-trigger { grid-column: 2; grid-row: 1; min-height: 44px; }
+  .navbar .stepper {
+    grid-column: 1 / -1;
+    margin: 0;
+    gap: clamp(6px, 1.5vw, 16px);
+    justify-content: center;
+    padding: 10px 0 2px;
+    border-top: 1px solid #eee7e2;
+  }
+  .navbar .step { font-size: 11px; color: #706661; }
+  .navbar .step.current { color: #c12a1e; }
+  .navbar .step-line { flex: 1; max-width: 48px; }
+}
+
+@media (max-width: 420px) {
+  .navbar .step { flex-direction: column; text-align: center; gap: 4px; }
+  .navbar .step-line { align-self: flex-start; margin-top: 9px; max-width: 24px; }
 }
 
 /* Distinct action colors with subtle tactile depth. */

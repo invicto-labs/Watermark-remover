@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, CircleHelp, FileText, LoaderCircle, LockKeyhole, Maximize2, Menu, Plus, ScanLine, ShieldCheck, Upload, WandSparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, CircleHelp, FileText, LoaderCircle, LockKeyhole, Maximize2, Plus, ScanLine, ShieldCheck, Upload, WandSparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
 import './styles.css';
 import HuntingtonReview from './HuntingtonReview';
 import CleanupProgress from './CleanupProgress';
@@ -55,7 +55,7 @@ function Button({ children, variant = 'primary', className = '', ...props }) {
 }
 
 function Brand() {
-  return <span className="brand"><img className="brand-mark" src="/static/favicon.svg" alt="" width="36" height="36" />clearpage<span className="brand-dot">.</span></span>;
+  return <span className="brand"><span className="brand-symbol" aria-hidden="true">▤</span><span><span className="brand-accent">clear</span>page<span className="brand-accent">.</span></span></span>;
 }
 
 function HelpDialog({ onClose }) {
@@ -85,7 +85,6 @@ function PdfTypeDialog({ item, selected, onSelect, onClose }) {
 }
 
 export default function App() {
-  const mobileMenu = useRef(null);
   const [view, setView] = useState('upload');
   const [billing, setBilling] = useState(null);
   const [showBilling, setShowBilling] = useState(false);
@@ -299,31 +298,14 @@ export default function App() {
   function navigate(next) { if (!busy) { setView(next); setError(''); } }
   const comparing = previewed.has(page);
   const pageDetails = results.find(item => item.page === page) || (comparing && page === 0 ? huntingtonPreview : null);
-  const navigationActions = <>
-    <button className="button button-secondary update-trigger" disabled={checkingUpdate} onClick={() => { mobileMenu.current?.close(); checkUpdates(true); }}>{checkingUpdate ? 'Checking updates…' : 'Check for updates'}</button>
-    {billing?.payment_provider === 'razorpay' && <button className="button button-secondary admin-trigger" disabled={busy} onClick={() => { mobileMenu.current?.close(); refreshBilling().catch(() => {}); setShowAdmin(true); }}>{billing.admin ? 'Admin · signed in' : 'Admin login'}</button>}
-    {billing?.enabled && !billing.admin && <button className="button button-secondary billing-trigger" disabled={busy} onClick={() => { mobileMenu.current?.close(); refreshBilling().catch(() => {}); setShowBilling(true); }}><LockKeyhole size={15} />{billing.credits} credits · Buy / activate</button>}
-  </>;
 
   return <div className={`app-shell ${view === 'review' ? 'review-mode' : view === 'workspace' ? 'workspace-mode' : ''}`}>
     <div className="main-shell">
       <header className="navbar">
         <a className="brand-link" href="/" onClick={event => { event.preventDefault(); navigate('upload'); }} aria-label="ClearPage home"><Brand /></a>
-        <div className="desktop-nav-actions">{navigationActions}</div>
-        <button type="button" className="icon-button app-menu-toggle" aria-label="Open navigation" aria-haspopup="dialog" aria-controls="app-menu" onClick={() => mobileMenu.current.showModal()}><Menu size={22} /></button>
         {view !== 'review' && <div className="stepper" aria-label="Cleanup progress">{steps.map((label, index) => <React.Fragment key={label}>{index > 0 && <span className={`step-line ${stage >= index ? 'complete' : ''}`} />}<span className={`step ${stage === index ? 'current' : stage > index ? 'done' : ''}`} aria-current={stage === index ? 'step' : undefined}><b>{stage > index ? <Check size={12} /> : `0${index + 1}`}</b><span>{label}</span></span></React.Fragment>)}</div>}
+        <button type="button" className="button button-secondary update-trigger" disabled={checkingUpdate} onClick={() => checkUpdates(true)}>{checkingUpdate ? 'Checking updates…' : 'Check for updates'}</button>
       </header>
-      <dialog id="app-menu" className="app-menu-drawer" ref={mobileMenu} aria-labelledby="app-menu-title" onClick={event => { if (event.target === event.currentTarget) event.currentTarget.close(); }}>
-        <div className="app-menu-content">
-          <div className="app-menu-heading"><h2 id="app-menu-title">ClearPage menu</h2><button autoFocus type="button" className="icon-button" aria-label="Close navigation" onClick={() => mobileMenu.current.close()}><X size={20} /></button></div>
-          <nav aria-label="Application navigation">
-            <button type="button" className="button button-secondary" disabled={busy} onClick={() => { mobileMenu.current.close(); navigate('upload'); }}>Upload PDF</button>
-            {job && <button type="button" className="button button-secondary" disabled={busy} onClick={() => { mobileMenu.current.close(); navigate('workspace'); }}>Current document</button>}
-            {results.length > 0 && <button type="button" className="button button-secondary" disabled={busy} onClick={() => { mobileMenu.current.close(); navigate('review'); }}>Review and export</button>}
-            {navigationActions}
-          </nav>
-        </div>
-      </dialog>
       <main className={view === 'review' ? 'main-content review-content' : view === 'workspace' ? 'main-content workspace-content' : 'main-content'}>
           {updateInfo && (!updateInfo.available || dismissedUpdate !== updateInfo.version) && <aside className={`update-notice ${updateInfo.available ? 'update-ready' : ''}`} role="status">
             <div><strong>{updateInfo.message}</strong>{updateInfo.available && <p>Download the new ZIP, close ClearPage and extract it into a new folder. Keep your existing app profile so your online account access is preserved.</p>}</div>
@@ -333,7 +315,7 @@ export default function App() {
         <input ref={fileRef} type="file" accept="application/pdf,.pdf" aria-label="Choose a PDF" className="sr-only" disabled={busy} onChange={event => upload(event.target.files?.[0])} />
 
         {view === 'upload' && <>
-          {billing?.admin ? <div className="billing-upload-note admin-active" role="status"><strong>Admin access is active.</strong> Documents do not use paid credits during this verified session. <button className="text-button" disabled={busy} onClick={()=>setShowAdmin(true)}>Manage admin session</button></div> : billing?.enabled && <div className="billing-upload-note"><strong>₹999 for two documents.</strong> One credit per distinct PDF. Reopen and download the same file again at no extra charge. <button className="text-button" disabled={busy} onClick={() => setShowBilling(true)}>Buy / activate</button></div>}
+          {billing?.admin ? <div className="billing-upload-note admin-active" role="status"><strong>Admin access is active.</strong> Documents do not use paid credits during this verified session. <button className="text-button" disabled={busy} onClick={()=>setShowAdmin(true)}>Manage admin session</button></div> : billing?.enabled && <div className="billing-upload-note"><strong>₹999 for two documents.</strong> One credit per distinct PDF. Reopen and download the same file again at no extra charge. <button className="text-button" disabled={busy} onClick={() => setShowBilling(true)}>Buy / activate</button> {billing.payment_provider === 'razorpay' && <button className="text-button" disabled={busy} onClick={() => setShowAdmin(true)}>Admin login</button>}</div>}
           <div className="upload-layout"><section className="upload-card"><div className="card-topline"><span><Upload size={16} />ADD YOUR DOCUMENT</span><span className="file-type">.PDF</span></div>
             <button disabled={busy} className={`dropzone ${dragging ? 'dragging' : ''}`} onClick={() => fileRef.current?.click()} onDragOver={event => { event.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); if (event.dataTransfer.files.length > 1) setError('Please add one PDF at a time.'); else upload(event.dataTransfer.files[0]); }}>
               <span className="upload-art"><span className="upload-art-back" /><span className="upload-art-front"><FileText size={37} strokeWidth={1.1} /></span><span className="upload-art-plus"><Plus size={16} /></span></span>
