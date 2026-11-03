@@ -20,24 +20,38 @@ document.querySelector('#enquiry-copy').addEventListener('click', async () => {
 
 const header = document.querySelector('.site-header');
 if (header) {
+  const drawer = document.querySelector('#site-menu');
+  const drawerNavigation = drawer.querySelector('nav');
+  drawerNavigation.replaceChildren(...[...header.querySelectorAll('nav a')].map(link => link.cloneNode(true)));
+  header.querySelector('.site-menu-toggle').addEventListener('click', () => drawer.showModal());
+  drawer.querySelector('.site-menu-close').addEventListener('click', () => drawer.close());
+  drawer.addEventListener('click', event => {
+    if (event.target === drawer || event.target.closest('a')) drawer.close();
+  });
   const sections = [...header.querySelectorAll('nav a[href^="#"]')].map(link => ({
     link,
+    drawerLink: drawerNavigation.querySelector(`a[href="${link.hash}"]`),
     section: document.getElementById(link.hash.slice(1)),
   })).filter(item => item.section);
-  let currentLink;
+  let currentSection;
   const updateHeader = () => {
     header.classList.toggle('is-scrolled', window.scrollY > 12);
     const anchorOffset = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop);
     const boundary = Math.max(header.offsetHeight + 36, anchorOffset + 21);
     const current = sections.findLast(({ section }) => section.getBoundingClientRect().top <= boundary);
-    if (currentLink === current?.link) return;
-    currentLink?.removeAttribute('aria-current');
-    currentLink = current?.link;
-    currentLink?.setAttribute('aria-current', 'location');
+    if (currentSection === current) return;
+    currentSection?.link.removeAttribute('aria-current');
+    currentSection?.drawerLink.removeAttribute('aria-current');
+    currentSection = current;
+    currentSection?.link.setAttribute('aria-current', 'location');
+    currentSection?.drawerLink.setAttribute('aria-current', 'location');
   };
   updateHeader();
   window.addEventListener('scroll', updateHeader, { passive: true });
-  window.addEventListener('resize', updateHeader);
+  window.addEventListener('resize', () => {
+    if (!window.matchMedia('(max-width: 1100px)').matches && drawer.open) drawer.close();
+    updateHeader();
+  });
   window.addEventListener('pageshow', updateHeader);
 }
 if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {

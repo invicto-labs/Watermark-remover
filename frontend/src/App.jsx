@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, CircleHelp, FileText, LoaderCircle, LockKeyhole, Maximize2, Plus, ScanLine, ShieldCheck, Upload, WandSparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, CircleHelp, FileText, LoaderCircle, LockKeyhole, Maximize2, Menu, Plus, ScanLine, ShieldCheck, Upload, WandSparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
 import './styles.css';
 import HuntingtonReview from './HuntingtonReview';
 import CleanupProgress from './CleanupProgress';
@@ -83,6 +83,7 @@ function PdfTypeDialog({ item, selected, onSelect, onClose }) {
 }
 
 export default function App() {
+  const mobileMenu = useRef(null);
   const [view, setView] = useState('upload');
   const [billing, setBilling] = useState(null);
   const [showBilling, setShowBilling] = useState(false);
@@ -296,16 +297,31 @@ export default function App() {
   function navigate(next) { if (!busy) { setView(next); setError(''); } }
   const comparing = previewed.has(page);
   const pageDetails = results.find(item => item.page === page) || (comparing && page === 0 ? huntingtonPreview : null);
+  const navigationActions = <>
+    <button className="button button-secondary update-trigger" disabled={checkingUpdate} onClick={() => { mobileMenu.current?.close(); checkUpdates(true); }}>{checkingUpdate ? 'Checking updates…' : 'Check for updates'}</button>
+    {billing?.payment_provider === 'razorpay' && <button className="button button-secondary admin-trigger" disabled={busy} onClick={() => { mobileMenu.current?.close(); refreshBilling().catch(() => {}); setShowAdmin(true); }}>{billing.admin ? 'Admin · signed in' : 'Admin login'}</button>}
+    {billing?.enabled && !billing.admin && <button className="button button-secondary billing-trigger" disabled={busy} onClick={() => { mobileMenu.current?.close(); refreshBilling().catch(() => {}); setShowBilling(true); }}><LockKeyhole size={15} />{billing.credits} credits · Buy / activate</button>}
+  </>;
 
   return <div className={`app-shell ${view === 'review' ? 'review-mode' : view === 'workspace' ? 'workspace-mode' : ''}`}>
     <div className="main-shell">
       <header className="navbar">
         <a className="brand-link" href="/" onClick={event => { event.preventDefault(); navigate('upload'); }} aria-label="ClearPage home"><Brand /></a>
-          <button className="button button-secondary update-trigger" disabled={checkingUpdate} onClick={() => checkUpdates(true)}>{checkingUpdate ? 'Checking updates…' : 'Check for updates'}</button>
-        {billing?.payment_provider === 'razorpay' && <button className="button button-secondary admin-trigger" disabled={busy} onClick={() => { refreshBilling().catch(() => {}); setShowAdmin(true); }}>{billing.admin ? 'Admin · signed in' : 'Admin login'}</button>}
-        {billing?.enabled && !billing.admin && <button className="button button-secondary billing-trigger" disabled={busy} onClick={() => { refreshBilling().catch(() => {}); setShowBilling(true); }}><LockKeyhole size={15} />{billing.credits} credits · Buy / activate</button>}
+        <div className="desktop-nav-actions">{navigationActions}</div>
+        <button type="button" className="icon-button app-menu-toggle" aria-label="Open navigation" aria-haspopup="dialog" aria-controls="app-menu" onClick={() => mobileMenu.current.showModal()}><Menu size={22} /></button>
         {view !== 'review' && <div className="stepper" aria-label="Cleanup progress">{steps.map((label, index) => <React.Fragment key={label}>{index > 0 && <span className={`step-line ${stage >= index ? 'complete' : ''}`} />}<span className={`step ${stage === index ? 'current' : stage > index ? 'done' : ''}`} aria-current={stage === index ? 'step' : undefined}><b>{stage > index ? <Check size={12} /> : `0${index + 1}`}</b><span>{label}</span></span></React.Fragment>)}</div>}
       </header>
+      <dialog id="app-menu" className="app-menu-drawer" ref={mobileMenu} aria-labelledby="app-menu-title" onClick={event => { if (event.target === event.currentTarget) event.currentTarget.close(); }}>
+        <div className="app-menu-content">
+          <div className="app-menu-heading"><h2 id="app-menu-title">ClearPage menu</h2><button autoFocus type="button" className="icon-button" aria-label="Close navigation" onClick={() => mobileMenu.current.close()}><X size={20} /></button></div>
+          <nav aria-label="Application navigation">
+            <button type="button" className="button button-secondary" disabled={busy} onClick={() => { mobileMenu.current.close(); navigate('upload'); }}>Upload PDF</button>
+            {job && <button type="button" className="button button-secondary" disabled={busy} onClick={() => { mobileMenu.current.close(); navigate('workspace'); }}>Current document</button>}
+            {results.length > 0 && <button type="button" className="button button-secondary" disabled={busy} onClick={() => { mobileMenu.current.close(); navigate('review'); }}>Review and export</button>}
+            {navigationActions}
+          </nav>
+        </div>
+      </dialog>
       <main className={view === 'review' ? 'main-content review-content' : view === 'workspace' ? 'main-content workspace-content' : 'main-content'}>
           {updateInfo && (!updateInfo.available || dismissedUpdate !== updateInfo.version) && <aside className={`update-notice ${updateInfo.available ? 'update-ready' : ''}`} role="status">
             <div><strong>{updateInfo.message}</strong>{updateInfo.available && <p>Download the new ZIP, close ClearPage and extract it into a new folder. Keep your existing app profile so your online account access is preserved.</p>}</div>

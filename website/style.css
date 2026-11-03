@@ -44,6 +44,41 @@ html { scroll-padding-top: 130px; }
   to { transform: scale(1); }
 }
 .site-header a:focus-visible { outline-color: #f9a99c; outline-offset: 2px; }
+.site-menu-toggle { display: none; }
+.site-menu-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  width: min(340px, 90vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  background: #24211e;
+  color: #fff7ee;
+}
+.site-menu-drawer::backdrop { background: #24211e80; }
+.site-menu-drawer[open] { animation: site-menu-enter .25s ease-out; }
+@keyframes site-menu-enter { from { transform: translateX(100%); } }
+.site-menu-content { min-height: 100%; padding: 24px; }
+.site-menu-heading { display: flex; justify-content: flex-end; margin-bottom: 18px; }
+.site-menu-toggle, .site-menu-close {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid #ffffff35;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.site-menu-close { font-size: 24px; }
+.site-menu-toggle:focus-visible, .site-menu-close:focus-visible { outline: 2px solid #f9a99c; outline-offset: 2px; }
+.site-menu-content nav { display: grid; gap: 8px; }
+.site-menu-content nav a { padding: 14px 16px; border-radius: 10px; }
+.site-menu-content nav a:hover { background: #ffffff15; }
+.site-menu-content nav a[aria-current="location"] { background: #f9c3b7; color: #35241f; }
 .button { gap: 11px; border: 1px solid #b92f20; border-radius: 8px; box-shadow: 0 5px 12px #b83a2419, inset 0 1px 0 #ffffff24; transition: transform .25s, box-shadow .25s, background .25s; }
 .button:hover { transform: translateY(-3px); box-shadow: 0 10px 23px #b83a242c; }
 .button:active { transform: translateY(-1px); }
@@ -314,6 +349,19 @@ main:has(> .hero) .button { font-size: 16px; }
 .footer-brand p { font-size: 22px; }
 .footer-column h3 { font-size: 13px; }
 .footer-local, .footer-bottom small, .site-footer .footer-bottom > div { font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .site-header .nav-inner { display: flex; gap: 12px; padding-block: 8px; }
+  .site-header .nav-inner nav { display: none; }
+  .site-menu-toggle { display: grid; place-items: center; flex: 0 0 44px; order: 3; }
+  .site-header .button.small { margin-left: auto; text-align: center; }
+}
+
+@media (max-width: 420px) {
+  .site-header .nav-inner { gap: 8px; }
+  .site-header .nav-inner .brand { font-size: 19px; }
+  .site-header .button.small .icon { display: none; }
+}
 
 .product-points article, .product-points article:last-child,
 .workflow li, .pricecard, .enquiry-form, .custom-promise {

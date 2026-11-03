@@ -567,6 +567,48 @@
 @media (max-width: 600px) { .review-selection-group { justify-content: center; width: 100%; gap: 6px; }.review-page-toolbar .review-current-choice { width: auto; }.review-current-choice .review-selection-switch { display: block; }.review-current-choice .review-selection-label { display: inline; } }
 
 /* Progress belongs in the navbar, leaving the workspace for the document. */
+.desktop-nav-actions { display: contents; }
+.navbar .app-menu-toggle { display: none; }
+.app-menu-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  width: min(340px, 90vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  padding: 0;
+  background: white;
+  color: #302b2a;
+}
+.app-menu-drawer::backdrop { background: #302b2a66; }
+.app-menu-drawer[open] { animation: app-menu-enter .25s ease-out; }
+@keyframes app-menu-enter { from { transform: translateX(100%); } }
+.app-menu-content { min-height: 100%; padding: 20px; }
+.app-menu-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; font-weight: 700; }
+.app-menu-content nav { display: grid; gap: 10px; }
+.app-menu-content nav .button { justify-content: flex-start; min-height: 44px; }
+
+@media (max-width: 1100px) {
+  .desktop-nav-actions { display: none; }
+  .navbar .app-menu-toggle { display: inline-flex; margin-left: auto; min-width: 44px; min-height: 44px; }
+  .review-mode > .main-shell > .navbar { display: flex; min-height: 64px; }
+  .review-mode .pdf-review { height: calc(100dvh - 88px); }
+}
+
+@media (max-width: 900px) {
+  .workspace-mode .editor-layout, .workspace-mode .editor-layout.initial-preview { grid-template-columns: minmax(0, 1fr); }
+  .workspace-mode .document-viewer, .workspace-mode .cleanup-panel { position: static; }
+  .workspace-mode .document-viewer { height: clamp(320px, 58dvh, 560px); min-height: 0; }
+  .workspace-mode .cleanup-panel { height: auto; min-height: 0; }
+  .workspace-mode .cleanup-options { max-height: 520px; }
+}
+
+@media (max-width: 480px) {
+  .workspace-mode .panel-actions { flex-wrap: wrap; }
+  .workspace-mode .panel-actions > .button { flex: 1 1 100%; }
+}
+
 .navbar .stepper { margin: 0 0 0 auto; gap: 16px; }
 .workspace-mode .navbar .stepper { margin-bottom: 0; }
 .workspace-mode .workspace-content { --editor-height: calc(100dvh - 161px); }
