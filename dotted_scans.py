@@ -6,6 +6,7 @@ strokes are retained. This is not a generic watermark or text recognizer.
 from pathlib import Path
 import json
 import warnings
+import shutil
 import cv2
 import numpy as np
 from PIL import Image
@@ -147,6 +148,26 @@ def prepare(source, index, method, directory, rendered, cancelled=lambda: False)
     """Cache a native, lossless single-page PDF; previews never become exports."""
     target = Path(directory)/f'{index}-{method}.pdf'
     metadata = target.with_suffix('.json')
+    if cancelled():
+        raise InterruptedError('Cancelled')
+    if method == 'dotted_document':
+        # This screen also removes stroke detail. Isolated-dot deletion cannot
+        # repair it; route only a verified match to its native reconstruction.
+        import screened_scans
+        page = read_pdf(source).pages[index]
+        bands = screened_scans.scan_objects(page)
+        if bands and screened_scans.matches(screened_scans.native_pixels(page, bands)):
+            cached, details = screened_scans.prepare(source, index, directory, cancelled)
+            temporary = target.with_suffix('.part')
+            try:
+                shutil.copyfile(cached, temporary)
+                if cancelled():
+                    raise InterruptedError('Cancelled')
+                temporary.replace(target)
+                metadata.write_text(json.dumps(details))
+            finally:
+                temporary.unlink(missing_ok=True)
+            return target, details
     if target.exists() and metadata.exists():
         return target, json.loads(metadata.read_text())
     page = read_pdf(source).pages[index]
@@ -192,6 +213,15 @@ def write_clean(source, target, keep, method, directory, cancelled=lambda: False
         path = Path(directory)/f'{index}-{method}.pdf'
         details = json.loads(path.with_suffix('.json').read_text())
         if not details['changed']:
+            continue
+        if details.get('native_screened'):
+            import screened_scans
+            bands = screened_scans.scan_objects(read_pdf(path).pages[0])
+            original = screened_scans.scan_objects(writer.pages[index])
+            if bands is None or original is None or [n for n, _ in bands] != [n for n, _ in original]:
+                raise ValueError('The native screen cache is invalid. Process this file again.')
+            for name, obj in bands:
+                replace_image(writer, writer.pages[index], name, obj.clone(writer))
             continue
         found = scan_object(read_pdf(path).pages[0])
         if found is None:

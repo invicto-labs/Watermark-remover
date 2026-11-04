@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420">
+  <defs><pattern id="dots" width="4" height="4" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".8" fill="#737373"/></pattern></defs>
+  <rect width="640" height="420" fill="#f2f0eb"/>
+  <rect x="118" y="24" width="404" height="372" rx="3" fill="white" stroke="#d2d0ca"/>
+  <g fill="#363b37" font-family="Arial,sans-serif"><text x="168" y="87" font-size="17" font-weight="bold">SCANNED DOCUMENT</text></g>
+  <g stroke="#6a6d69" stroke-width="4"><path d="M157 119h320 M157 138h288 M157 157h318 M157 176h302 M157 211h316 M157 230h294 M157 249h319 M157 268h306 M157 303h319 M157 322h288"/></g>
+  <text x="191" y="137" transform="rotate(43 191 137)" font-family="Arial,sans-serif" font-weight="bold" font-size="55" stroke="white" stroke-width="3" paint-order="stroke" fill="url(#dots)">Un-Official</text>
+</svg>

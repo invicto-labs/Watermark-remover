@@ -9,9 +9,11 @@ import gray_scans
 import nassau_scans
 import scan_patterns
 import dotted_scans
+import screened_scans
 import page_polarity
 
 REASONS = {
+    'screened_unofficial': 'Diagonal dotted “Un-Official” matches this scan. Removes the pattern and repairs damaged strokes; review the result.',
     'repeated_copy': 'Small gray copy words repeat across the page. Review overlaps and dark headers.',
     'flat_gray_copy': 'Repeated light-gray marks over pure black ink, like “Unofficial Copy”.',
     'cumberland_red': 'Matches the pale diagonal Cumberland watermark. Use this preset to refine faint traces.',
@@ -39,6 +41,10 @@ def suggest(source, count, overlays, image_for, assets):
             page = reader.pages[index]
             if overlays[index].get('overlays'):
                 add('overlay', index)
+            screened = screened_scans.scan_objects(page)
+            if screened and screened_scans.matches(screened_scans.native_pixels(page, screened)):
+                add('screened_unofficial', index)
+                continue
             repeated = repeated_copy.scan_object(page)
             if repeated and repeated_copy.clean(repeated_copy.pixels(repeated))[2]['matched']:
                 add('repeated_copy', index)

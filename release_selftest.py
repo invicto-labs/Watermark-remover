@@ -9,9 +9,14 @@ from PIL import Image, ImageDraw
 import neural_restore
 import text_restore
 import scan_patterns
+import screened_scans
 
 
 def run(base, output):
+    screen = screened_scans.profile()['mask'].copy()
+    cleaned, details = screened_scans.clean_pixels(screen)
+    if not details['matched'] or cleaned.any():
+        raise RuntimeError('Packaged dotted Un-Official screen failed its blank-paper check.')
     for height in scan_patterns.GRAY_LAYOUTS:
         with np.load(base/f'assets/unofficial-copy-{height}.npz', allow_pickle=False) as asset:
             seed = asset['seed'].copy()
@@ -30,5 +35,5 @@ def run(base, output):
     prediction = text_restore.recognize(np.array(word), base/'models'/text_restore.MODEL_NAME)
     if not np.isfinite(prediction['confidence']):
         raise RuntimeError('Packaged ONNX recognition returned invalid output.')
-    Path(output).write_text(json.dumps({'lama_inference': True, 'onnx_inference': True, 'scan_pattern_assets': True,
+    Path(output).write_text(json.dumps({'lama_inference': True, 'onnx_inference': True, 'scan_pattern_assets': True, 'screened_scan_assets': True,
                                       'outside_mask_preserved': True}), encoding='utf-8')

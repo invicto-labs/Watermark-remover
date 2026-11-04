@@ -41,6 +41,7 @@ models/
 !assets/unofficial-copy-2538.npz
 !assets/preble-unofficial.npz
 !assets/cumberland-red.npz
+!assets/screened-unofficial.npz
 reviewed-pages/
 ClearPage-*/
 .env

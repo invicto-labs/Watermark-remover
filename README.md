@@ -413,6 +413,31 @@ and preservation; they do not claim word accuracy or an overall percentage.
 
 ## Employees: start here
 
+### Dotted Un-Official scans
+
+Choose **Dotted Un-Official** when suggested for a diagonal dotted mark like
+the supported 1728 × 2160 scan. **Dotted document** also routes this detected
+pattern to the same cleanup. Single-image scans and two equal grayscale image
+bands are supported; other patterns and sizes are left unchanged by this preset.
+
+This local script removes the periodic screen and reconstructs damaged strokes
+at the native resolution. It uses the same filters as the refined restoration,
+preserves every observed non-watermark black pixel and every pixel outside the
+watermark area, and exports the original image placement without rasterizing
+the PDF. Four previously reviewed common-word patches are applied only to an
+exact matching native-page fingerprint. They cannot substitute words in another
+document. No AI runtime, API key, or OCR dependency is required for this preset.
+
+Reconstruction is approximate: removal of a visible pattern does not establish
+100% word or signature accuracy. Review and select the cleaned pages before
+export. Page selection, preview and PDF download use the same native results.
+
+The packaged `assets/screened-unofficial.npz` contains the watermark pattern,
+small numerical filters, four common-word patches and their page fingerprint;
+it does not contain the original PDF, names, signatures, or complete pages.
+
+### Basic workflow
+
 1. Extract **the entire ClearPage-2.2-Windows-x64.zip** to a new folder on your computer.
 2. Open the ClearPage folder and double-click **ClearPage.exe**. Keep the `_internal` folder beside the application.
 3. ClearPage opens in its own Windows desktop window. PDF contents are processed on your computer. The paid Standard edition requires internet to verify credits and document access. Python is bundled; Windows 10/11 x64 and Microsoft Edge WebView2 Runtime are required.
