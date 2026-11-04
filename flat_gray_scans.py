@@ -12,9 +12,10 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject
 from pdf_overlays import read_pdf
 from dotted_scans import replace_image
+import tammany_scans
 
 MAX_PIXELS = 12_000_000
-CACHE = 'native-flat-gray-v1'
+CACHE = 'native-flat-gray-v2'
 
 
 def unchanged_details(note):
@@ -74,15 +75,31 @@ def prepare(source,index,directory,cancelled=lambda:False):
     if cancelled():raise InterruptedError('Cancelled')
     target=Path(directory)/f'{index}-{CACHE}.pdf';metadata=target.with_suffix('.json')
     if target.exists() and metadata.exists():return target,json.loads(metadata.read_text())
-    page=read_pdf(source).pages[index];found=scan_object(page)
+    reader=read_pdf(source)
+    page=reader.pages[index]
+    tammany=tammany_scans.scan_object(page)
+    found=tammany or scan_object(page)
     if found is None:return None
     name,obj=found
-    image=page.images[0].image.convert('RGB')
-    if image.size!=(int(obj['/Width']),int(obj['/Height'])):
-        raise ValueError('The decoded scan dimensions do not match the PDF.')
-    result,changed,details=clean(image,cancelled)
+    if tammany:
+        pixels=tammany_scans.pixels(tammany)
+        mark=tammany_scans.detected_stamp(pixels)
+        details=unchanged_details('No supported gray watermark found on this scan.')
+        if mark is not None:
+            result=tammany_scans.clean(reader,pixels,mark,directory,cancelled)
+            changed=result!=pixels
+            if pixels.ndim==3:
+                changed=changed.any(axis=2)
+            details.update(matched=True,changed=int(changed.sum()),native_tammany=True,
+                           black_pixels_exact=True,uncertain=pixels.ndim==3,
+                           pattern_note='St. Tammany gray watermark removed at the original scan resolution. Black ink and colored seals are preserved. Review the cover page where the stamp crossed text.')
+    else:
+        image=page.images[0].image.convert('RGB')
+        if image.size!=(int(obj['/Width']),int(obj['/Height'])):
+            raise ValueError('The decoded scan dimensions do not match the PDF.')
+        result,changed,details=clean(image,cancelled)
     writer=PdfWriter();writer.add_page(page)
-    if changed.any():
+    if details['changed']:
         cloned=writer.pages[0]['/Resources']['/XObject'][name].get_object()
         stream=DecodedStreamObject()
         stream.update({k:v for k,v in cloned.items() if k not in ('/Filter','/DecodeParms','/Length')})
@@ -101,11 +118,30 @@ def prepare(source,index,directory,cancelled=lambda:False):
 
 def write_clean(source,target,keep,directory,cancelled=lambda:False):
     writer=PdfWriter();writer.clone_document_from_reader(read_pdf(source))
+    tammany_changed=False
     for index in keep:
         if cancelled():raise InterruptedError('Cancelled')
-        cached=read_pdf(Path(directory)/f'{index}-{CACHE}.pdf').pages[0]
-        found=scan_object(cached)
+        path=Path(directory)/f'{index}-{CACHE}.pdf'
+        details=json.loads(path.with_suffix('.json').read_text())
+        if not details['changed']:continue
+        cached=read_pdf(path).pages[0]
+        if details.get('native_tammany'):
+            found=tammany_scans.scan_object(cached)
+            original=tammany_scans.scan_object(writer.pages[index])
+            if found is None or original is None or found[0]!=original[0]:
+                raise ValueError('The St. Tammany scan cache is invalid. Process again.')
+            tammany_changed=True
+        else:
+            found=scan_object(cached)
         if found is None:raise ValueError('The light-gray scan cache is invalid. Process again.')
         name,obj=found;replace_image(writer,writer.pages[index],name,obj.clone(writer))
-    if cancelled():raise InterruptedError('Cancelled')
-    with open(target,'wb') as output:writer.write(output)
+    if tammany_changed:
+        writer.compress_identical_objects(remove_duplicates=False,remove_unreferenced=True)
+    temporary=Path(target).with_suffix('.part')
+    try:
+        if cancelled():raise InterruptedError('Cancelled')
+        with temporary.open('wb') as output:writer.write(output)
+        if cancelled():raise InterruptedError('Cancelled')
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)

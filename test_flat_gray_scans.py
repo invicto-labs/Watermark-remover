@@ -3,15 +3,18 @@ from pathlib import Path
 from io import BytesIO
 import tempfile
 import unittest
+import zlib
 from unittest.mock import patch
 import numpy as np
 from PIL import Image
 from pypdf import PdfReader,PdfWriter
+from pypdf.generic import ArrayObject, DecodedStreamObject, NameObject, NumberObject
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.utils import ImageReader
 import app
 import engine
 import flat_gray_scans as flat
+import tammany_scans
 
 
 def fixture():
@@ -25,6 +28,32 @@ def fixture():
 
 
 class FlatGrayTests(unittest.TestCase):
+    def test_st_tammany_grayscale_with_indirect_color_space(self):
+        outline = Image.fromarray(tammany_scans.probes()[0].astype('uint8')*255)
+        mask = np.asarray(outline.resize((1100, 1800), Image.Resampling.NEAREST)) == 255
+        pixels = np.where(mask, 160, 255).astype('uint8')
+        pixels[400:1400:35, 180:950] = 0
+        original = BytesIO()
+        canvas = Canvas(original, pagesize=(440, 720))
+        canvas.drawImage(ImageReader(Image.fromarray(pixels)), 0, 0, 440, 720)
+        canvas.save()
+        writer = PdfWriter(clone_from=PdfReader(original))
+        scan = next(iter(writer.pages[0]['/Resources']['/XObject'].values())).get_object()
+        scan[NameObject('/Filter')] = NameObject('/FlateDecode')
+        scan._data = zlib.compress(pixels.tobytes())
+        profile = DecodedStreamObject()
+        profile[NameObject('/N')] = NumberObject(1)
+        space = ArrayObject([NameObject('/ICCBased'), writer._add_object(profile)])
+        scan[NameObject('/ColorSpace')] = writer._add_object(space)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)/'tammany.pdf'
+            writer.write(source)
+            preview, details = flat.prepare(source, 0, directory)
+            self.assertTrue(details['native_tammany'])
+            page = PdfReader(preview).pages[0]
+            actual = tammany_scans.pixels(tammany_scans.scan_object(page))
+            np.testing.assert_array_equal(actual, np.where(pixels == 160, 255, pixels))
+
     def test_removes_separate_gray_and_preserves_every_black_pixel(self):
         a=fixture();result,mask,stats=flat.clean(Image.fromarray(a))
         self.assertTrue(stats['matched']);self.assertTrue(stats['black_pixels_exact'])

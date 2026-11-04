@@ -4,18 +4,20 @@ import numpy as np
 from pdf_overlays import read_pdf
 import repeated_copy
 import flat_gray_scans
+import tammany_scans
 import red_scans
 import gray_scans
 import nassau_scans
 import scan_patterns
 import dotted_scans
 import screened_scans
+import search_package_dots
 import page_polarity
 
 REASONS = {
     'screened_unofficial': 'Diagonal dotted “Un-Official” matches this scan. Removes the pattern and repairs damaged strokes; review the result.',
     'repeated_copy': 'Small gray copy words repeat across the page. Review overlaps and dark headers.',
-    'flat_gray_copy': 'Repeated light-gray marks over pure black ink, like “Unofficial Copy”.',
+    'flat_gray_copy': 'Matches a supported gray “Unofficial” stamp on a scan.',
     'cumberland_red': 'Matches the pale diagonal Cumberland watermark. Use this preset to refine faint traces.',
     'red_copy': 'Large pale-red diagonal lettering, like “Not an Official Copy”.',
     'overlay': 'Supported separate PDF text or watermark objects were found.',
@@ -24,7 +26,7 @@ REASONS = {
     'polarity': 'Dark paper with light text looks like a negative scan.',
     'huntington_background': 'The scanned watermark matches the Huntington County pattern.',
     'repeated_document': 'Repeated diagonal lettering was detected. Overlapping text needs review.',
-    'dotted_document': 'Isolated dots match the diagonal document-watermark pattern.',
+    'dotted_document': 'Dots match the diagonal document-watermark pattern.',
     'dotted_map': 'Isolated dots match the supported plat or survey watermark pattern.',
 }
 
@@ -44,6 +46,14 @@ def suggest(source, count, overlays, image_for, assets):
             screened = screened_scans.scan_objects(page)
             if screened and screened_scans.matches(screened_scans.native_pixels(page, screened)):
                 add('screened_unofficial', index)
+                continue
+            package_scan = search_package_dots.scan_object(page)
+            if package_scan and search_package_dots.variant(search_package_dots.native_gray(page, package_scan)) >= 0:
+                add('dotted_document', index)
+                continue
+            tammany = tammany_scans.scan_object(page)
+            if tammany and tammany_scans.detected_stamp(tammany_scans.pixels(tammany)) is not None:
+                add('flat_gray_copy', index)
                 continue
             repeated = repeated_copy.scan_object(page)
             if repeated and repeated_copy.clean(repeated_copy.pixels(repeated))[2]['matched']:

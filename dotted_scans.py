@@ -13,6 +13,7 @@ from PIL import Image
 from pypdf import PdfWriter
 from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
 from pdf_overlays import read_pdf
+import search_package_dots
 
 METHODS = ('dotted_document', 'dotted_map')
 MAX_NATIVE_PIXELS = 150_000_000
@@ -150,11 +151,13 @@ def prepare(source, index, method, directory, rendered, cancelled=lambda: False)
     metadata = target.with_suffix('.json')
     if cancelled():
         raise InterruptedError('Cancelled')
+    if target.exists() and metadata.exists():
+        return target, json.loads(metadata.read_text())
+    page = read_pdf(source).pages[index]
     if method == 'dotted_document':
         # This screen also removes stroke detail. Isolated-dot deletion cannot
         # repair it; route only a verified match to its native reconstruction.
         import screened_scans
-        page = read_pdf(source).pages[index]
         bands = screened_scans.scan_objects(page)
         if bands and screened_scans.matches(screened_scans.native_pixels(page, bands)):
             cached, details = screened_scans.prepare(source, index, directory, cancelled)
@@ -168,16 +171,30 @@ def prepare(source, index, method, directory, rendered, cancelled=lambda: False)
             finally:
                 temporary.unlink(missing_ok=True)
             return target, details
-    if target.exists() and metadata.exists():
-        return target, json.loads(metadata.read_text())
-    page = read_pdf(source).pages[index]
     found = scan_object(page)
     details = dict(native_dots=True, changed=0, matched=False, confidence=None,
                    protected=0, reviewed=False, uncertain=False,
                    note='No supported dotted scan found. Original page retained.')
     writer = PdfWriter()
     writer.add_page(page)
-    if found:
+    package_scan = search_package_dots.scan_object(page) if method == 'dotted_document' else None
+    if package_scan:
+        pixels = search_package_dots.native_gray(page, package_scan)
+        if search_package_dots.variant(pixels) >= 0:
+            template = search_package_dots.template_for(source, index, directory, cancelled)
+            if template is None:
+                details['pattern_note'] = 'Original page kept. This dotted scan needs more matching reference pages in the uploaded package.'
+            else:
+                result = search_package_dots.restore(pixels, template)
+                count = int(np.count_nonzero(result != pixels))
+                if count:
+                    name, _ = package_scan
+                    cloned = writer.pages[0]['/Resources']['/XObject'][name].get_object()
+                    replace_image(writer, writer.pages[0], name, search_package_dots.image_stream(cloned, result))
+                    details.update(native_search_package=True, changed=count, matched=True, uncertain=True,
+                                   stroke_reconstruction=True,
+                                   pattern_note='Dotted watermark removed at scan resolution. Review text and signatures where the mark crossed them.')
+    elif found:
         name, obj = found
         a = native_pixels(page, obj, rendered)
         result, count = clean_pixels(a, method)
@@ -207,6 +224,7 @@ def prepare(source, index, method, directory, rendered, cancelled=lambda: False)
 def write_clean(source, target, keep, method, directory, cancelled=lambda: False):
     writer = PdfWriter()
     writer.clone_document_from_reader(read_pdf(source))
+    package_changed = False
     for index in keep:
         if cancelled():
             raise InterruptedError('Cancelled')
@@ -223,11 +241,22 @@ def write_clean(source, target, keep, method, directory, cancelled=lambda: False
             for name, obj in bands:
                 replace_image(writer, writer.pages[index], name, obj.clone(writer))
             continue
+        if details.get('native_search_package'):
+            cached = search_package_dots.scan_object(read_pdf(path).pages[0])
+            original = search_package_dots.scan_object(writer.pages[index])
+            if cached is None or original is None or cached[0] != original[0]:
+                raise ValueError('The dotted search-package cache is invalid. Process this file again.')
+            name, obj = cached
+            replace_image(writer, writer.pages[index], name, obj.clone(writer))
+            package_changed = True
+            continue
         found = scan_object(read_pdf(path).pages[0])
         if found is None:
             raise ValueError('The native scan cache is invalid. Process this file again.')
         name, obj = found
         replace_image(writer, writer.pages[index], name, obj.clone(writer))
+    if package_changed:
+        writer.compress_identical_objects(remove_duplicates=False, remove_unreferenced=True)
     temporary = Path(target).with_suffix('.part')
     try:
         with temporary.open('wb') as output:

@@ -13,7 +13,7 @@ import CleanupSuggestions from './CleanupSuggestions';
 const presets = [
   { id: 'screened_unofficial', title: 'Dotted Un-Official', description: 'One diagonal dotted “Un-Official” mark across a scan. Removes the pattern and repairs damaged strokes. Review text and signatures.', image: 'screened-unofficial', tag: 'Scanned documents' },
   { id: 'repeated_copy', title: 'Small repeated copy', description: 'Small gray copy words repeated across the scan. Review dark areas after cleanup.', image: 'repeated-copy', tag: 'Scans' },
-  { id: 'flat_gray_copy', title: 'Light gray · black ink scans', description: 'Repeated “Unofficial Copy / Gallia County” marks. Keeps original black pixels.', image: 'flat-gray', tag: 'Black ink scans' },
+  { id: 'flat_gray_copy', title: 'Gray watermark · black ink scans', description: 'Use for the diagonal St. Tammany “UNOFFICIAL” stamp or repeated Gallia County “Unofficial Copy” marks. Keeps original black pixels.', image: 'flat-gray', tag: 'Black ink scans' },
   { id: 'cumberland_red', title: 'Cumberland red watermark', description: 'Refines faint traces from the pale red diagonal Cumberland stamp while protecting dark ink.', image: 'red-copy', tag: 'County scans' },
   { id: 'red_copy', title: 'Red “Not an Official Copy”', description: 'Pale red diagonal lettering on black-and-white scans. No AI needed.', image: 'red-copy', tag: 'Red marks' },
   { id: 'gemini_draft', title: 'Gemini AI draft · cloud', description: 'Try one difficult page with your Gemini key. Requires review.', image: 'repeated-diagonal', tag: 'Optional cloud' },
@@ -243,8 +243,16 @@ export default function App() {
   }
   function finishCleanup(state) {
     const next = state.results || [];
-    setReviewedAI(new Set()); setResults(next); setPreviewed(new Set(next.map(item => item.page))); setSelected(new Set(next.filter(item => item.changed && !item.uncertain).map(item => item.page))); setPage(0); setRevision(value => value + 1); setPreviewError(false);
-    setMessage(next.some(item => item.changed) ? 'Cleanup complete. Review your pages and choose which cleaned results to keep. Pages needing review start unchecked.' : 'No supported watermarks found. Try another preset or export the original pages.');
+    const cleaned = next.filter(item => item.changed);
+    const selectedPages = cleaned.filter(item => !item.uncertain || ((item.native_search_package || item.native_tammany) && item.matched));
+    setReviewedAI(new Set()); setResults(next); setPreviewed(new Set(next.map(item => item.page))); setSelected(new Set(selectedPages.map(item => item.page))); setPage(0); setRevision(value => value + 1); setPreviewError(false);
+    if (cleaned.length === 0) {
+      setMessage('No supported watermarks found. Try another preset or export the original pages.');
+    } else if (selectedPages.length === cleaned.length) {
+      setMessage('All cleaned pages are selected. Review them before downloading.');
+    } else {
+      setMessage('Cleanup complete. Review your pages and choose which cleaned results to keep. Some pages start unchecked.');
+    }
     setCleanupProgress({ completed: state.count, total: state.count, status: 'complete', message: '' });
   }
   async function preview() {

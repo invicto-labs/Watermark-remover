@@ -60,16 +60,22 @@ preserves every original dark pixel (levels 0–75) and all pixels outside its
 cleanup area; faint strokes at overlaps still need review. No AI or OCR is used.
 Preview and export share the same versioned native-image cache.
 
-Choose **Light gray · black ink scans** for repeated horizontal “Unofficial Copy /
+Choose **Gray watermark · black ink scans** for repeated horizontal “Unofficial Copy /
 Gallia County” marks like the tested search package. Preview, clean all pages,
 then review and download. This local preset removes only the separate light-gray
 range and verifies that every original black pixel remains unchanged. It does
 not rewrite text or require AI. It works on original scan samples and preserves
 page placement, cropping, rotation, dimensions, and order.
 
-The preset rejects colored scans, intermediate gray text, non-repeating gray
+The Gallia detector rejects colored scans, intermediate gray text, non-repeating gray
 marks, and unsupported PDF images. Those pages stay unchanged. A matching pixel
 palette is not proof that all gray content is a watermark: review before export.
+
+The same option detects the diagonal St. Tammany “UNOFFICIAL” stamp on supported
+grayscale scans and recording covers. It removes the separate gray stamp from
+the scans and reverses the tint on the covers, preserving black pixels and
+colored seals. Matched pages start selected for export. Review the cover text
+where the stamp crossed it before downloading.
 
 ## Red diagonal scan watermarks
 
@@ -276,7 +282,8 @@ Under **More options > PDF type**, choose **Dotted watermark · search package**
 for the centered diagonal dotted "Unofficial Document" layout on portrait scans,
 or **Dotted watermark · plat map** for the large landscape map layout. Try one
 page, clean all pages, review the result and select the cleaned pages to save.
-Changed pages start unchecked. All pages remain in the exported document.
+Pages flagged for review start unchecked for isolated-dot cleanup. All pages
+remain in the exported document.
 
 These two presets remove dense clusters of isolated 1–4 pixel dots in their
 respective diagonal regions. Connected text and map strokes are retained;
@@ -284,13 +291,22 @@ dots joined to those strokes can remain. Small isolated punctuation or symbols
 inside the selected area still need review. These are layout-specific presets,
 not automatic recognition of arbitrary watermarks or a text accuracy guarantee.
 
-Supported inputs are simple full-page, unrotated, 1-bit Indexed black-and-white
-PDF scans encoded with CCITT or Flate. Unsupported image structures stay
+Isolated-dot cleanup supports simple full-page, unrotated, 1-bit Indexed
+black-and-white PDF scans encoded with CCITT or Flate. Unsupported image structures stay
 unchanged. Large supported maps use bounded previews, while native cleanup and
 lossless export preserve the image dimensions, page geometry and drawing stream.
 Limits: 150 million native pixels and 24 million pixels in the processing region.
 No OCR, AI word replacement or whole-page resampling is used for these presets.
 They cannot be combined with color inversion in the same pass.
+
+**Dotted document** also supports the 1500 × 1800 grayscale search-package
+layout with the diagonal “Unofficial Document” mark. ClearPage learns the
+watermark from matching pages in the upload. This route needs at least three
+pages from each of three supported reference variants and leaves pages without
+enough matching evidence as they were. Matched cleaned pages start selected
+for export and can be deselected individually. It preserves pixels outside the
+detected mark. Review overlapping text and signatures because pixels obscured
+by the watermark are estimated from nearby strokes.
 
 Regression coverage is in `test_dotted_scans.py`, automatically included by the
 existing Windows CI test discovery. Company sample PDFs are kept out of Git.
