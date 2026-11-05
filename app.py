@@ -34,6 +34,7 @@ import scan_input
 import pdf_selection
 import dotted_scans
 import screened_scans
+import kane_outline
 import preble_scans
 import nassau_scans
 import scan_patterns
@@ -187,7 +188,7 @@ def static(name):
     if name not in ('ui.js', 'ui.css', 'favicon.svg', 'app.js', 'style.css', 'repair.js', 'workspace.js', 'objects.js', 'sections.js', 'simple.css', 'simple.js',
                     'type-dotted-document.webp', 'type-dotted-map.webp', 'type-unofficial-copy.webp',
                     'type-overlay.webp', 'type-huntington.webp', 'type-repeated-diagonal.webp', 'type-polarity.svg',
-                    'type-preble.webp', 'type-red-copy.svg', 'type-flat-gray.svg', 'type-repeated-copy.svg', 'type-nassau.svg', 'type-screened-unofficial.svg'):
+                    'type-preble.webp', 'type-red-copy.svg', 'type-flat-gray.svg', 'type-repeated-copy.svg', 'type-nassau.svg', 'type-screened-unofficial.svg', 'type-kane-outline.svg'):
         return '', 404
     return send_file(BASE/'static'/name)
 
@@ -391,7 +392,7 @@ def settings(data):
         return dict(method=method, mode='careful', strokes=[], use_reviewed=False,
                     auto_restore=bool(data.get('auto_restore', False)), scan_inversion=False,
                     fix_negative=False, polarity_pages=[])
-    if method in (*dotted_scans.METHODS, *screened_scans.METHODS, *preble_scans.METHODS, *nassau_scans.METHODS, *scan_patterns.METHODS):
+    if method in (*dotted_scans.METHODS, *screened_scans.METHODS, *kane_outline.METHODS, *preble_scans.METHODS, *nassau_scans.METHODS, *scan_patterns.METHODS):
         return dict(method=method, mode='lama' if method == 'repeated_diagonal_ai' else 'careful', strokes=[], use_reviewed=False,
                     auto_restore=False, scan_inversion=False, fix_negative=False, polarity_pages=[])
     if method == 'polarity':
@@ -454,9 +455,10 @@ def cleanup_page(job, index, options):
 
 
 def process_page(job, index, options):
-    if options['method'] in screened_scans.METHODS:
+    if options['method'] in (*screened_scans.METHODS, *kane_outline.METHODS):
+        module = kane_outline if options['method'] in kane_outline.METHODS else screened_scans
         before = Image.open(original(job, index)).convert('RGB')
-        target, details = screened_scans.prepare(job['source'], index, job['dir'], lambda: job['cancel'])
+        target, details = module.prepare(job['source'], index, job['dir'], lambda: job['cancel'])
         after = render_page(target, 0)
         after.save(image_path(job, index, True))
         overlay = np.array(before)
@@ -674,7 +676,7 @@ def process_page(job, index, options):
 
 def repair_job(identifier, data):
     job = job_for(identifier)
-    if (job.get('options') or {}).get('method') in ('gemini_draft', 'overlay', 'object', 'polarity', *dotted_scans.METHODS, *screened_scans.METHODS, *preble_scans.METHODS, *nassau_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
+    if (job.get('options') or {}).get('method') in ('gemini_draft', 'overlay', 'object', 'polarity', *dotted_scans.METHODS, *screened_scans.METHODS, *kane_outline.METHODS, *preble_scans.METHODS, *nassau_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
         raise ValueError('Switch to image cleanup to repair words; overlay removal and black-page correction do not apply word repairs.')
     if job['state'] not in ('review', 'done'):
         raise ValueError('Process all pages first, then repair words in the cleaned preview.')
@@ -814,7 +816,7 @@ def restoration_worker(job,clear=False):
 def restore_all_words(identifier):
     with LOCK:
         job=job_for(identifier)
-        if (job.get('options') or {}).get('method') in ('gemini_draft', 'overlay', 'object', 'polarity', *dotted_scans.METHODS, *screened_scans.METHODS, *preble_scans.METHODS, *nassau_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
+        if (job.get('options') or {}).get('method') in ('gemini_draft', 'overlay', 'object', 'polarity', *dotted_scans.METHODS, *screened_scans.METHODS, *kane_outline.METHODS, *preble_scans.METHODS, *nassau_scans.METHODS, *(m for m in scan_patterns.METHODS if m != 'huntington_background')):
             raise ValueError('Word restoration is disabled for overlay removal and black-page correction.')
         if job['state'] not in ('review','done'):
             raise ValueError('Process all pages before restoring words.')
@@ -1074,8 +1076,9 @@ def export_worker(job, keep):
     try:
         require_ai_review(job, keep)
         with LOCK:
-            if job['options']['method'] in screened_scans.METHODS:
-                screened_scans.write_clean(job['source'], job['dir']/'cleaned.pdf', keep,
+            if job['options']['method'] in (*screened_scans.METHODS, *kane_outline.METHODS):
+                module = kane_outline if job['options']['method'] in kane_outline.METHODS else screened_scans
+                module.write_clean(job['source'], job['dir']/'cleaned.pdf', keep,
                                           job['dir'], lambda:job['cancel'])
             elif job['options']['method'] in nassau_scans.METHODS:
                 nassau_scans.write_clean(job['source'], job['dir']/'cleaned.pdf', keep,

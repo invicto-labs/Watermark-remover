@@ -669,3 +669,32 @@ Preview and export use the same lossless native-image result; no AI or OCR rewri
 is used. Review each cleaned page before selecting it for export: overlapped ink,
 dark headers, and black margins can retain marks. Original security printing is not
 a cleanup target. This is not a guarantee of exact reconstruction or total removal.
+
+## Kane County dotted outline
+
+Choose **Kane County · dotted outline** for the supported 1728 x 2160 bilevel
+scan with a diagonal outlined “Unofficial” stamp. Upload suggestions recognize
+the exact watermark geometry and dot positions. Preview, clean all pages, and
+review before downloading; matching cleaned pages start selected.
+
+Cleanup changes only the 6,063 known watermark pixels. Every other native pixel
+is preserved exactly, including punctuation, black text, and signatures. Tiny
+intersections are estimated from neighboring ink with a local filter, so they
+are not guaranteed to match an unavailable clean original. No OCR, cloud, or AI
+is required. Blank, shifted, differently sized, and unmatched pages stay original.
+The watermark-only profile is bundled in Windows packages; customer documents
+are not bundled. Regression coverage is in `test_kane_outline.py`.
+
+## Separate gray Un-Official overlays
+
+Choose **Text & website marks** for the supported gray diagonal “Un-Official”
+PDF text overlay on search packages and large maps. Upload suggestions detect
+this variant automatically. Preview, whole-document cleanup, and export use
+the same PDF-object removal in `pdf_overlays.py`.
+
+The detector checks the terminal text block, exact character mapping, font,
+color, opacity, rotation, and underlying scan. It removes only the matching
+overlay commands; original scan bytes, page geometry, and unselected pages
+remain unchanged. This variant does not reconstruct letters or use AI.
+Flattened or differently encoded marks require a different supported method.
+Synthetic positive and negative cases are in `test_unofficial_overlay.py`.

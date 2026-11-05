@@ -11,6 +11,7 @@ import GeminiTrial from './GeminiTrial';
 import CleanupSuggestions from './CleanupSuggestions';
 
 const presets = [
+  { id: 'kane_outline', title: 'Kane County · dotted outline', description: 'One large diagonal “Unofficial” word drawn with a dotted outline, as in Kane County scans. Review tiny crossings with text and signatures.', image: 'kane-outline', tag: 'County scans' },
   { id: 'screened_unofficial', title: 'Dotted Un-Official', description: 'One diagonal dotted “Un-Official” mark across a scan. Removes the pattern and repairs damaged strokes. Review text and signatures.', image: 'screened-unofficial', tag: 'Scanned documents' },
   { id: 'repeated_copy', title: 'Small repeated copy', description: 'Small gray copy words repeated across the scan. Review dark areas after cleanup.', image: 'repeated-copy', tag: 'Scans' },
   { id: 'flat_gray_copy', title: 'Gray watermark · black ink scans', description: 'Use for the diagonal St. Tammany “UNOFFICIAL” stamp or repeated Gallia County “Unofficial Copy” marks. Keeps original black pixels.', image: 'flat-gray', tag: 'Black ink scans' },
@@ -22,7 +23,7 @@ const presets = [
   { id: 'unofficial_copy', title: 'Unofficial copy', description: 'Gray “Unofficial Copy” marks. Adjusts to each supported page’s size and angle.', image: 'unofficial-copy', tag: 'Scans' },
   { id: 'nassau_unofficial', title: 'Nassau · Unofficial Copy', description: 'Pale diagonal lettering with a repeated square border. Review faint text, signatures and intersections after cleanup.', image: 'nassau', tag: 'County scans' },
   { id: 'preble_unofficial', title: 'Preble County · Unofficial Copy', description: 'Fine-line “Unofficial Copy” marks on Preble County search packages. Review fine text where the mark crosses it.', image: 'preble', tag: 'County scans' },
-  { id: 'overlay', title: 'Text & website marks', description: 'Separate PDF text, website names, and stamps.', image: 'overlay', tag: 'Digital PDFs' },
+  { id: 'overlay', title: 'Text & website marks', description: 'Separate PDF stamps, including gray diagonal “Un-Official” on search packages and maps. Keeps the original scan unchanged.', image: 'overlay', tag: 'PDF overlays' },
   { id: 'preset', title: 'Huntington County', description: 'The county watermark across scanned text.', image: 'huntington', tag: 'County scans' },
   { id: 'huntington_background', title: 'Huntington - step by step', description: 'Refine cleanup, then repair confirmed words.', image: 'huntington', tag: 'Text review' },
   { id: 'repeated_document', title: 'Repeated diagonal', description: 'Clean margins and text gaps. Overlapping ink stays protected.', image: 'repeated-diagonal', tag: 'Scans' },
@@ -80,7 +81,7 @@ function PdfTypeDialog({ item, selected, onSelect, onClose }) {
   useEffect(() => { const previous = document.activeElement; dialogRef.current?.showModal(); return () => previous?.focus(); }, []);
   return <dialog ref={dialogRef} className="pdf-type-dialog" aria-labelledby="pdf-type-title" onCancel={onClose} onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div className="pdf-type-dialog-content">
     <button autoFocus className="icon-button close-help" aria-label="Close PDF type" onClick={onClose}><X size={20} /></button>
-    <div className="pdf-type-example"><img src={`/static/type-${item.image}.${['polarity','red-copy','flat-gray','repeated-copy','nassau','screened-unofficial'].includes(item.image) ? 'svg' : 'webp'}`} alt={`${item.title} example`} /></div>
+    <div className="pdf-type-example"><img src={`/static/type-${item.image}.${['polarity','red-copy','flat-gray','repeated-copy','nassau','screened-unofficial','kane-outline'].includes(item.image) ? 'svg' : 'webp'}`} alt={`${item.title} example`} /></div>
     <div className="pdf-type-details"><span className="eyebrow">{item.tag}</span><h2 id="pdf-type-title">{item.title}</h2><p>{item.description}</p><Button onClick={() => { onSelect(item.id); onClose(); }}>{selected ? <Check size={17} /> : <ArrowRight size={17} />}{selected ? 'Keep this PDF type' : 'Use this PDF type'}</Button></div>
   </div></dialog>;
 }
@@ -244,7 +245,7 @@ export default function App() {
   function finishCleanup(state) {
     const next = state.results || [];
     const cleaned = next.filter(item => item.changed);
-    const selectedPages = cleaned.filter(item => !item.uncertain || ((item.native_search_package || item.native_tammany) && item.matched));
+    const selectedPages = cleaned.filter(item => !item.uncertain || ((item.native_search_package || item.native_tammany || item.native_kane) && item.matched));
     setReviewedAI(new Set()); setResults(next); setPreviewed(new Set(next.map(item => item.page))); setSelected(new Set(selectedPages.map(item => item.page))); setPage(0); setRevision(value => value + 1); setPreviewError(false);
     if (cleaned.length === 0) {
       setMessage('No supported watermarks found. Try another preset or export the original pages.');
@@ -351,7 +352,7 @@ export default function App() {
           <aside className="cleanup-panel" aria-label="Cleanup settings"><div className="panel-title"><span className="feature-icon"><WandSparkles size={20} /></span><div><h2 id="pdf-type-heading">Choose your PDF type</h2><p>Select a card to see an example.</p></div></div>
             <div className="cleanup-options">
             <CleanupSuggestions state={suggestions} presets={presets} method={method} busy={busy} onChoose={choosePreset} />
-            <fieldset disabled={busy} className="preset-fieldset" aria-labelledby="pdf-type-heading"><div className="pdf-type-grid">{presets.map(item => <button type="button" key={item.id} className={'pdf-type-card ' + (method === item.id ? 'selected' : '')} aria-label={'View ' + item.title + ' PDF type'} aria-haspopup="dialog" onClick={() => setPdfType(item)}><span className="pdf-type-thumbnail"><img src={'/static/type-' + item.image + '.' + (['polarity','red-copy','flat-gray','repeated-copy','nassau','screened-unofficial'].includes(item.image) ? 'svg' : 'webp')} alt="" />{method === item.id && <span className="pdf-type-check"><Check size={13} /></span>}</span><span className="pdf-type-card-title">{item.title}<ArrowRight size={14} /></span><span className="pdf-type-tag">{item.tag}</span><span className="sr-only">{method === item.id ? 'Selected' : ''}</span></button>)}</div></fieldset>
+            <fieldset disabled={busy} className="preset-fieldset" aria-labelledby="pdf-type-heading"><div className="pdf-type-grid">{presets.map(item => <button type="button" key={item.id} className={'pdf-type-card ' + (method === item.id ? 'selected' : '')} aria-label={'View ' + item.title + ' PDF type'} aria-haspopup="dialog" onClick={() => setPdfType(item)}><span className="pdf-type-thumbnail"><img src={'/static/type-' + item.image + '.' + (['polarity','red-copy','flat-gray','repeated-copy','nassau','screened-unofficial','kane-outline'].includes(item.image) ? 'svg' : 'webp')} alt="" />{method === item.id && <span className="pdf-type-check"><Check size={13} /></span>}</span><span className="pdf-type-card-title">{item.title}<ArrowRight size={14} /></span><span className="pdf-type-tag">{item.tag}</span><span className="sr-only">{method === item.id ? 'Selected' : ''}</span></button>)}</div></fieldset>
             {method === 'repeated_diagonal_ai' && <div className="note" role="status"><p>{localAI.message} Uses the earlier full cleanup coverage, then copies supported original strokes back into the result. Covered words, signatures and barcodes can still change; inspect every AI draft before export.</p></div>}
             </div>
             {method === 'gemini_draft' ? <GeminiTrial request={request} busy={busy} page={page} onTrial={geminiTrial} /> : <div className="panel-actions"><Button className="preview-action" onClick={preview} disabled={busy || (method === 'repeated_diagonal_ai' && !localAI.ready)}><ScanLine size={16} />Preview first page</Button>{results.length ? <Button className="review-action" onClick={() => navigate('review')} disabled={busy}><Check size={16} />Review pages<ArrowRight size={16} /></Button> : <Button className="clean-action" onClick={cleanAll} disabled={busy || (method === 'repeated_diagonal_ai' && !localAI.ready)}>{busy ? <LoaderCircle size={16} className="animate-spin" /> : <WandSparkles size={16} />}Clean all {job.count} {job.count === 1 ? 'page' : 'pages'}<ArrowRight size={16} /></Button>}<span className="panel-footnote"><ShieldCheck size={13} />Your original is always preserved.</span></div>}

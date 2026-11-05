@@ -173,6 +173,65 @@ def apdf_ranges(ops, resources):
     return [] if level else ranges
 
 
+def unofficial_text_ranges(ops, resources):
+    """Verified Harrison scan/map suffix: remove the overlay, never scan pixels.
+
+    CID strings are glyph IDs, not readable text. Check the actual Unicode map
+    as well as the glyph bytes, font, angle, opacity and complete suffix grammar.
+    Only a terminal block is eligible, so deleting its state cannot affect later
+    document content. Unknown encodings and additional drawing stay untouched.
+    """
+    if len(ops) < 9:
+        return []
+    block = ops[-8:]
+    if [op for _, op in block] != [b'gs', b'BT', b'rg', b'Tf', b'Tm', b'Tj', b'Tm', b'ET']:
+        return []
+    try:
+        resources = resolved(resources)
+        objects = resolved(resources.get('/XObject', {}))
+        prefix = ops[:-8]
+        level = 0
+        for args, op in prefix:
+            if op in (b'Tj', b'TJ', b"'", b'"'):
+                return []
+            if op == b'q': level += 1
+            if op == b'Q': level -= 1
+            if level < 0: return []
+        if level or not any(op == b'Do' and len(args) == 1 and
+                            resolved(objects.get(args[0], {})).get('/Subtype') == '/Image'
+                            for args, op in prefix):
+            return []
+        def close(values, expected):
+            return len(values) == len(expected) and all(
+                math.isfinite(float(a)) and abs(float(a)-b) < .00001
+                for a, b in zip(values, expected))
+        if len(block[0][0]) != 1 or len(block[3][0]) != 2 or len(block[5][0]) != 1:
+            return []
+        state = resolved(resolved(resources.get('/ExtGState', {})).get(block[0][0][0], {}))
+        font = resolved(resolved(resources.get('/Font', {})).get(block[3][0][0], {}))
+        cmap = resolved(font.get('/ToUnicode'))
+        if (set(state) != {'/ca'} or not close([state['/ca']], [.70588])
+                or font.get('/Subtype') != '/Type0' or font.get('/Encoding') != '/Identity-H'
+                or str(font.get('/BaseFont', '')).split('+')[-1] != 'OpenSans-Bold'
+                or not hasattr(cmap, 'get_data')
+                or hashlib.sha256(cmap.get_data()).hexdigest() !=
+                '49257e90a1a3a1cbba47de4cd7295f20ca0c311dba4037e11faf73cf92b368cd'):
+            return []
+        text = block[5][0][0]
+        raw = text.original_bytes if hasattr(text, 'original_bytes') else bytes(text)
+        matrix = block[4][0]
+        if (raw != bytes.fromhex('003800510010003200490049004c0046004c0044004f')
+                or not close(block[2][0], [.75294]*3)
+                or not 24 <= float(block[3][0][1]) <= 2000
+                or len(matrix) != 6 or not all(math.isfinite(float(v)) for v in matrix)
+                or not close(matrix[:4], [.70711, -.70711, .70711, .70711])
+                or not close(block[6][0], [1, 0, 0, 1, 0, 0])):
+            return []
+        return [(len(ops)-8, len(ops), 'Harrison County Un-Official text')]
+    except (TypeError, ValueError, KeyError, IndexError, AttributeError, OverflowError):
+        return []
+
+
 def harrison_map_overlay(stream, xobjects):
     # The top image contains map content as well as the stamp. Remove it only
     # when the drawing instructions and all underlying scans are verified.
@@ -198,9 +257,10 @@ def rewrite_node(node, resources, owner, writer=None, depth=0, ancestors=()):
     ops = stream.operations
     cook = cook_ranges(ops, resources)
     apdf = apdf_ranges(ops, resources)
-    ranges = cook + apdf
+    unofficial = unofficial_text_ranges(ops, resources)
+    ranges = cook + apdf + unofficial
     remove = {i for start, end, _ in ranges for i in range(start, end)}
-    labels = ['Cook County'] * len(cook) + [label for _, _, label in apdf]
+    labels = ['Cook County'] * len(cook) + [label for _, _, label in apdf + unofficial]
     updated = []; removed_names = set()
     new_resources = DictionaryObject(dict(resources))
     new_xobjects = DictionaryObject(dict(xobjects))

@@ -10,7 +10,7 @@ import pypdfium2 as pdfium
 from pypdf import PdfReader, PdfWriter, Transformation
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.utils import ImageReader
-from pdf_overlays import read_pdf
+from pdf_overlays import read_pdf, rewrite_node
 import dotted_scans
 
 SCALE = 2
@@ -30,8 +30,14 @@ def inspect_pdf(path):
     for page in reader.pages:
         w, h = float(page.cropbox.width), float(page.cropbox.height)
         oversized = not (1 <= w <= 4000 and 1 <= h <= 4000) or w*h*SCALE*SCALE > MAX_PIXELS
-        if oversized and not (1 <= w <= 20000 and 1 <= h <= 20000 and dotted_scans.scan_object(page)):
-            raise ValueError('A page is too large. Maximum rendered page size is 12 million pixels.')
+        if oversized:
+            # Recognized vector overlays can be removed without rasterizing the
+            # output. render_page still caps the preview at MAX_PIXELS.
+            bounded = 1 <= w <= 20000 and 1 <= h <= 20000
+            supported = bounded and (dotted_scans.scan_object(page) or
+                rewrite_node(page.get_contents(), page.get('/Resources', {}), reader)[2])
+            if not supported:
+                raise ValueError('A page is too large. Maximum rendered page size is 12 million pixels.')
         if page.rotation % 90:
             raise ValueError('This PDF has an unsupported page rotation.')
         sizes.append([w, h])

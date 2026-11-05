@@ -11,10 +11,12 @@ import nassau_scans
 import scan_patterns
 import dotted_scans
 import screened_scans
+import kane_outline
 import search_package_dots
 import page_polarity
 
 REASONS = {
+    'kane_outline': 'Matches the Kane County diagonal dotted-outline “Unofficial” stamp. Review small intersections with text.',
     'screened_unofficial': 'Diagonal dotted “Un-Official” matches this scan. Removes the pattern and repairs damaged strokes; review the result.',
     'repeated_copy': 'Small gray copy words repeat across the page. Review overlaps and dark headers.',
     'flat_gray_copy': 'Matches a supported gray “Unofficial” stamp on a scan.',
@@ -44,6 +46,9 @@ def suggest(source, count, overlays, image_for, assets):
             if overlays[index].get('overlays'):
                 add('overlay', index)
             screened = screened_scans.scan_objects(page)
+            if screened and kane_outline.matches(screened_scans.native_pixels(page, screened)):
+                add('kane_outline', index)
+                continue
             if screened and screened_scans.matches(screened_scans.native_pixels(page, screened)):
                 add('screened_unofficial', index)
                 continue
