@@ -2,7 +2,7 @@
 from pathlib import Path
 import os
 import hashlib
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_delvewheel_libs_directory
 
 root = Path(SPECPATH)
 # Opt-in commercial builds include public payment instructions and a public key only.
@@ -55,11 +55,12 @@ version_path = policy_dir/'version-info.txt'
 version_resource(version_path, owner_test)
 if billing_path.exists():
     datas.append((str(billing_path), '.'))
-for package in ('pypdfium2', 'pypdfium2_raw'):
+for package in ('pypdfium2', 'pypdfium2_raw', 'pikepdf'):
     data, binary, imports = collect_all(package)
     datas += data
     binaries += binary
     hiddenimports += imports
+datas, binaries = collect_delvewheel_libs_directory('pikepdf', datas=datas, binaries=binaries)
 
 a = Analysis([str(root/'app.py')], pathex=[str(root)], binaries=binaries,
              runtime_hooks=[str(policy_hook)],

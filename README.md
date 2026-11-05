@@ -49,6 +49,20 @@ do not change the PDF or select a cleanup automatically. **All cleanup types**
 keeps every preset available and opens when no clear match is found. Sampled
 pages may not represent the entire file; review other page types before export.
 
+## Lossless PDF compression
+
+After uploading a PDF, choose **Compress PDF** in the top bar. Compression targets
+**25,000,000 bytes (25 MB)** while preserving image samples, resolution, text and
+page content. The tool uses local pikepdf/qpdf stream and object optimization.
+It keeps the smaller of the optimized file and the original bytes and reports
+whether the target was reached. Already compressed scans may remain above 25 MB.
+The tool never lowers image quality to force the target.
+
+Choose the original upload or a completed cleanup PDF. To compress reviewed cleanup,
+download the reviewed PDF first, then choose **Completed cleanup PDF**. Compression
+uses the uploaded document's existing authorization and does not spend another credit.
+Digital signatures and encrypted PDFs require an unsigned, unlocked copy.
+
 ## Light-gray marks on black ink scans
 
 For large diagonal gray **Unofficial Copy** lettering, use **Unofficial copy**.
@@ -348,7 +362,7 @@ unchanged. This does not add generic removal of all diagonal or repeated text.
 
 ## New in 2.0
 
-- **File queue:** open up to 20 PDFs/scans (150 MB per input, 500 MB total).
+- **File queue:** open up to 20 PDFs/scans (200 MB per input, 500 MB total).
   Each file retains its own cleanup settings. Clean waiting files sequentially;
   stop the queue without changing the original input files.
 - **Review before ZIP:** compare each changed page, choose whether to keep its
@@ -403,7 +417,7 @@ word-repair patches cannot be reused with different color settings: keep the
 previous setting, or save your work and reopen the original before changing it.
 This avoids silently discarding or incorrectly recoloring accepted repairs.
 
-Image imports allow up to 150 MB, 300 TIFF pages, 12 million decoded pixels per
+Image imports allow up to 200 MB, 300 TIFF pages, 12 million decoded pixels per
 page, and 120 million pixels per image file. A low DPI value that would exceed
 the existing PDF render limits is rejected. Animated PNGs and other image
 formats are not supported. A damaged or oversized import leaves no partial job.
@@ -572,7 +586,7 @@ This is **visual cleanup, not secure redaction**. It adds visible corrections wh
 ## Supported input
 
 - Windows x64 build; browser interface tested locally.
-- Unlocked PDFs, up to 150 MB and 300 pages, with each rendered page up to 12 million pixels.
+- Unlocked PDFs, up to 200 MB and 300 pages, with each rendered page up to 12 million pixels.
 - Raster scans are the intended input. Website mode also removes the specifically recognized text/vector overlays described above; arbitrary native PDF overlays are not supported.
 - Interactive forms are rejected. Do not use it to preserve or validate digital signatures. Any PDF edit can invalidate a signature.
 - Pages with rotation and crop boxes are supported. Source page size, crop, rotation, order, and count are preserved.
