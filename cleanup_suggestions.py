@@ -12,10 +12,12 @@ import scan_patterns
 import dotted_scans
 import screened_scans
 import kane_outline
+import licensed_diagonal
 import search_package_dots
 import page_polarity
 
 REASONS = {
+    'licensed_diagonal': 'Matches the diagonal “LICENSED TO FIRST AMERICAN DATA TREE LLC” stamp. Review crossings with words and signatures.',
     'kane_outline': 'Matches the Kane County diagonal dotted-outline “Unofficial” stamp. Review small intersections with text.',
     'screened_unofficial': 'Diagonal dotted “Un-Official” matches this scan. Removes the pattern and repairs damaged strokes; review the result.',
     'repeated_copy': 'Small gray copy words repeat across the page. Review overlaps and dark headers.',
@@ -45,6 +47,10 @@ def suggest(source, count, overlays, image_for, assets):
             page = reader.pages[index]
             if overlays[index].get('overlays'):
                 add('overlay', index)
+            licensed = licensed_diagonal.scan_objects(page)
+            if licensed and licensed_diagonal.matches(licensed_diagonal.native_pixels(page, licensed)):
+                add('licensed_diagonal', index)
+                continue
             screened = screened_scans.scan_objects(page)
             if screened and kane_outline.matches(screened_scans.native_pixels(page, screened)):
                 add('kane_outline', index)

@@ -698,3 +698,20 @@ overlay commands; original scan bytes, page geometry, and unselected pages
 remain unchanged. This variant does not reconstruct letters or use AI.
 Flattened or differently encoded marks require a different supported method.
 Synthetic positive and negative cases are in `test_unofficial_overlay.py`.
+
+## Diagonal licensing text on tiled scans
+
+Choose **Diagonal licensing text** for the supported line beginning “LICENSED
+TO FIRST AMERICAN DATA TREE LLC”. Upload suggestions use the same detector as
+preview and processing. This variant supports the verified 2560-pixel-wide,
+3312- or 4208-pixel-tall bilevel scans stored as five or six grayscale bands.
+It checks the PDF placement commands and the watermark's native pixel position;
+unknown layouts, shifted marks, grayscale scans, and unmatched pages stay original.
+
+Preview, processing, and export share `licensed_diagonal.py`. Only the 39,629
+profile pixels are interpolated; every other native pixel, page dimension, and
+placement command is unchanged. No OCR or AI rewrites words. Intersections with
+text and signatures are estimates, so review and select cleaned pages before
+exporting. Unselected pages stay original. The packaged profile contains only
+watermark geometry and image-placement instructions, not customer document text.
+Regression coverage is in `test_licensed_diagonal.py`.
