@@ -46,6 +46,7 @@ import repeated_copy
 import cleanup_suggestions
 import huntington
 import gemini_cleanup
+import pdf_compression
 
 BASE = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 ROOT = Path(tempfile.mkdtemp(prefix='ClearPage-'))
@@ -55,7 +56,7 @@ JOBS = {}
 SERVER = None
 HOST = None
 app = Flask(__name__, static_folder=None)
-app.config['MAX_CONTENT_LENGTH'] = 150*1024*1024
+app.config['MAX_CONTENT_LENGTH'] = 200*1024*1024
 
 
 @app.before_request
@@ -83,7 +84,7 @@ def headers(response):
 
 @app.errorhandler(413)
 def too_large(error):
-    return jsonify(error='The file is too large. Maximum file size is 150 MB.'), 413
+    return jsonify(error='The file is too large. Maximum file size is 200 MB.'), 413
 
 
 @app.errorhandler(ValueError)
@@ -115,7 +116,7 @@ def job_for(identifier):
 
 
 def public(job):
-    return {key: job[key] for key in ('id', 'name', 'count', 'size', 'options', 'state', 'progress', 'message', 'results', 'overlays', 'input_type', 'input_note', 'ui') if key in job}
+    return {key: job[key] for key in ('id', 'name', 'count', 'size', 'options', 'state', 'progress', 'message', 'results', 'overlays', 'input_type', 'input_note', 'ui', 'compression') if key in job}
 
 
 def require_new_review(job, index=None):
@@ -210,7 +211,7 @@ def upload():
                 while chunk := request.stream.read(1024*1024):
                     total += len(chunk)
                     if total > app.config['MAX_CONTENT_LENGTH']:
-                        raise ValueError('Maximum file size is 150 MB.')
+                        raise ValueError('Maximum file size is 200 MB.')
                     if total + sum(j['size'] for j in JOBS.values()) > 500*1024*1024:
                         raise ValueError('The open files exceed 500 MB. Remove finished files before adding more.')
                     target.write(chunk)
@@ -1150,6 +1151,64 @@ def download(identifier):
                      download_name=Path(job['name']).stem+f'_ClearPage-{VERSION}.pdf', mimetype='application/pdf')
 
 
+def compression_worker(job, source, previous_state):
+    def progress(value):
+        with LOCK:
+            job['compression']['progress'] = value
+    try:
+        result = pdf_compression.compress_pdf(source, job['dir']/'compressed.pdf',
+                                             lambda: job['cancel'], progress)
+        with LOCK:
+            job['compression'].update(status='ready', progress=100, **result)
+    except InterruptedError:
+        with LOCK:
+            job['compression'].update(status='cancelled', message='Compression stopped. You can try again.')
+    except ValueError as error:
+        with LOCK:
+            job['compression'].update(status='error', message=str(error))
+    except Exception:
+        with LOCK:
+            job['compression'].update(status='error', message='Could not compress this PDF. Check available disk space and try again.')
+    finally:
+        with LOCK:
+            job['state'] = previous_state
+
+
+@app.post('/api/compress/<identifier>')
+def compress_document(identifier):
+    with LOCK:
+        job = job_for(identifier)
+        if job['state'] not in ('ready', 'review', 'done', 'cancelled', 'error'):
+            raise ValueError('Wait for the current operation to finish before compressing.')
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or data.get('source', 'original') not in ('original', 'cleaned'):
+            raise ValueError('Choose the original PDF or a completed cleanup export.')
+        source_kind = data.get('source', 'original')
+        source = job['source'] if source_kind == 'original' else job['dir']/'cleaned.pdf'
+        if source_kind == 'cleaned' and (job['state'] != 'done' or not source.is_file()):
+            raise ValueError('Download your reviewed cleanup PDF first, then compress it.')
+        previous_state = job['state']
+        job.update(state='exporting', cancel=False,
+                   compression=dict(status='processing', progress=0, source=source_kind))
+        threading.Thread(target=compression_worker, args=(job, source, previous_state), daemon=True).start()
+        return jsonify(job['compression'])
+
+
+@app.get('/api/compress/<identifier>')
+def compression_status(identifier):
+    return jsonify(job_for(identifier).get('compression', dict(status='idle')))
+
+
+@app.get('/api/compressed-download/<identifier>')
+def compressed_download(identifier):
+    job = job_for(identifier)
+    if job.get('compression', {}).get('status') != 'ready':
+        raise ValueError('Compress the PDF before downloading it.')
+    return send_file(job['dir']/'compressed.pdf', as_attachment=True,
+                     download_name=Path(job['name']).stem+'_ClearPage-compressed.pdf',
+                     mimetype='application/pdf')
+
+
 @app.post('/api/compare/<identifier>/<int:index>')
 def compare_reference(identifier, index):
     with LOCK:
@@ -1164,7 +1223,7 @@ def compare_reference(identifier, index):
                 while chunk := request.stream.read(1024*1024):
                     total += len(chunk)
                     if total > app.config['MAX_CONTENT_LENGTH']:
-                        raise ValueError('Maximum file size is 150 MB.')
+                        raise ValueError('Maximum file size is 200 MB.')
                     output.write(chunk)
             quality_check.validate_reference(job['source'], target)
             report = quality_check.compare(Image.open(original(job,index)),
@@ -1245,7 +1304,7 @@ def import_reviewed(identifier):
                 while chunk := request.stream.read(1024*1024):
                     total += len(chunk)
                     if total > app.config['MAX_CONTENT_LENGTH']:
-                        raise ValueError('Maximum file size is 150 MB.')
+                        raise ValueError('Maximum file size is 200 MB.')
                     output.write(chunk)
         except Exception:
             target.unlink(missing_ok=True)
