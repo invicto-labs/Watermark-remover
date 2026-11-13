@@ -1,12 +1,13 @@
-"""Exact black-pixel preservation for repeated light-gray marks on binary scans.
+"""Native cleanup of separated gray marks and supported resampled Gallia scans.
 
-This is deliberately not a general grayscale threshold: only neutral scans with
-no levels between black and 211, a dominant 211 watermark level, and repeated
-horizontal watermark bands qualify. Work on native samples, never a rendering.
+The resampled path edits only light pixels near repeated gray glyph components,
+with darker ink and neighboring edges protected. Unknown layouts stay intact.
 """
 from pathlib import Path
 import json
+import cv2
 import numpy as np
+import pikepdf
 from PIL import Image
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject
@@ -15,7 +16,7 @@ from clearpage.presets.dotted_scans import replace_image
 from clearpage.presets import tammany_scans
 
 MAX_PIXELS = 12_000_000
-CACHE = 'native-flat-gray-v2'
+CACHE = 'native-flat-gray-v3'
 
 
 def unchanged_details(note):
@@ -29,9 +30,11 @@ def clean(image, cancelled=lambda: False):
         raise ValueError('This scan is too large for light-gray cleanup.')
     a=np.array(image.convert('RGB'));g=a[:,:,0]
     empty=np.zeros(g.shape,bool)
-    details=unchanged_details('Page kept unchanged: this preset requires pure black ink and a separate repeated light-gray watermark. Use another preset for ordinary grayscale scans.')
-    if np.any(a!=g[:,:,None]) or np.any((g>0)&(g<211)):
+    details=unchanged_details('Original page kept. This preset needs a supported neutral scan with repeated light-gray watermark bands.')
+    if np.any(a!=g[:,:,None]):
         return a,empty,details
+    if np.any((g>0)&(g<211)):
+        return clean_resampled(a, details, cancelled)
     mask=(g>=211)&(g<255)
     count=int(mask.sum())
     if count<100 or int((g==211).sum())<count*.5:
@@ -52,9 +55,52 @@ def clean(image, cancelled=lambda: False):
     return result,mask,details
 
 
+def clean_resampled(a, details, cancelled):
+    """Recognize repeated 211-level lettering in supported native scan sizes."""
+    gray = a[:, :, 0]
+    height, width = gray.shape
+    empty = np.zeros(gray.shape, bool)
+    if not (1800 <= width <= 2100 and 2300 <= height <= 3500):
+        return a, empty, details
+    if np.count_nonzero(gray == 211) < 1000:
+        return a, empty, details
+    if cancelled():
+        raise InterruptedError('Cancelled')
+    _, labels, boxes, _ = cv2.connectedComponentsWithStats((gray == 211).astype('uint8'), 8)
+    eligible = (boxes[:, 4] >= 4) & (boxes[:, 2] < 120) & (boxes[:, 3] < 100)
+    eligible[0] = False
+    seed = eligible[labels]
+    rows = np.flatnonzero(seed.sum(axis=1) > max(8, width * .01))
+    if not len(rows):
+        return a, empty, details
+    groups = np.split(rows, np.flatnonzero(np.diff(rows) > height * .035) + 1)
+    columns = np.flatnonzero(seed.any(axis=0))
+    if (not 5 <= len(groups) <= 10 or groups[-1][0] - groups[0][-1] < height * .45
+            or columns[-1] - columns[0] < width * .4
+            or any(group[-1] - group[0] > 170 for group in groups)):
+        return a, empty, details
+    scope = np.zeros(gray.shape, bool)
+    for group in groups:
+        scope[max(0, group[0] - 4):min(height, group[-1] + 5)] = True
+    near = cv2.dilate(seed.astype('uint8'), np.ones((5, 5), 'uint8')) > 0
+    protected = cv2.dilate((gray < 205).astype('uint8'), np.ones((3, 3), 'uint8')) > 0
+    mask = near & scope & (gray >= 211) & (gray < 255) & ~protected
+    if cancelled():
+        raise InterruptedError('Cancelled')
+    if not mask.any():
+        return a, empty, details
+    result = a.copy()
+    result[mask] = 255
+    details.update(matched=True, changed=int(mask.sum()), protected=int(protected.sum()),
+                   black_pixels_exact=True, darker_pixels_exact=True, outside_mask_exact=True,
+                   resampled_gray=True, watermark_bands=len(groups), uncertain=True,
+                   pattern_note='Repeated light-gray Gallia marks cleaned at the original scan resolution. Dark text and nearby edges are preserved. Review faint text and watermark intersections before export.')
+    return result, mask, details
+
+
 def scan_object(page):
-    resources=page.get('/Resources',{})
-    objects=resources.get('/XObject',{})
+    resources=page['/Resources'] if '/Resources' in page else {}
+    objects=resources['/XObject'] if '/XObject' in resources else {}
     if len(objects)!=1:return None
     name=next(iter(objects));obj=objects[name].get_object()
     if (obj.get('/Subtype')!='/Image' or obj.get('/ColorSpace')!='/DeviceRGB'
@@ -119,6 +165,7 @@ def prepare(source,index,directory,cancelled=lambda:False):
 def write_clean(source,target,keep,directory,cancelled=lambda:False):
     writer=PdfWriter();writer.clone_document_from_reader(read_pdf(source))
     tammany_changed=False
+    resampled_changed=False
     for index in keep:
         if cancelled():raise InterruptedError('Cancelled')
         path=Path(directory)/f'{index}-{CACHE}.pdf'
@@ -135,13 +182,22 @@ def write_clean(source,target,keep,directory,cancelled=lambda:False):
             found=scan_object(cached)
         if found is None:raise ValueError('The light-gray scan cache is invalid. Process again.')
         name,obj=found;replace_image(writer,writer.pages[index],name,obj.clone(writer))
+        resampled_changed |= bool(details.get('resampled_gray'))
     if tammany_changed:
         writer.compress_identical_objects(remove_duplicates=False,remove_unreferenced=True)
     temporary=Path(target).with_suffix('.part')
+    optimized=Path(target).with_suffix('.optimized.part')
     try:
         if cancelled():raise InterruptedError('Cancelled')
         with temporary.open('wb') as output:writer.write(output)
+        if resampled_changed:
+            with pikepdf.Pdf.open(temporary) as pdf:
+                pdf.save(optimized, compress_streams=True, object_stream_mode=pikepdf.ObjectStreamMode.generate)
+            if cancelled():raise InterruptedError('Cancelled')
+            optimized.replace(target)
+            return
         if cancelled():raise InterruptedError('Cancelled')
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)
+        optimized.unlink(missing_ok=True)

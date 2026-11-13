@@ -26,7 +26,8 @@ def probes():
 
 
 def scan_object(page):
-    objects = page.get('/Resources', {}).get('/XObject', {})
+    resources = page['/Resources'] if '/Resources' in page else {}
+    objects = resources['/XObject'] if '/XObject' in resources else {}
     if len(objects) != 1 or page.rotation:
         return None
     name = next(iter(objects))

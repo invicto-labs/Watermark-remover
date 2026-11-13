@@ -83,16 +83,22 @@ preserves every original dark pixel (levels 0–75) and all pixels outside its
 cleanup area; faint strokes at overlaps still need review. No AI or OCR is used.
 Preview and export share the same versioned native-image cache.
 
-Choose **Gray watermark · black ink scans** for repeated horizontal “Unofficial Copy /
+Choose **St. Tammany / Gallia · gray watermark** for repeated horizontal “Unofficial Copy /
 Gallia County” marks like the tested search package. Preview, clean all pages,
 then review and download. This local preset removes only the separate light-gray
 range and verifies that every original black pixel remains unchanged. It does
 not rewrite text or require AI. It works on original scan samples and preserves
 page placement, cropping, rotation, dimensions, and order.
 
-The Gallia detector rejects colored scans, intermediate gray text, non-repeating gray
-marks, and unsupported PDF images. Those pages stay unchanged. A matching pixel
-palette is not proof that all gray content is a watermark: review before export.
+The Gallia option also supports resampled neutral scans with repeated light-gray
+lettering at native widths of 1800–2100 pixels and heights of 2300–3500 pixels.
+This pass requires separated watermark bands and gray glyph components spread
+across the page. It removes only light pixels near those components while keeping
+every pixel below gray level 211 and protecting neighboring dark edges. Preview
+and export use the same native cache. Indirect PDF resource dictionaries are supported.
+
+Colored scans, unmatched layouts, non-repeating marks and unsupported PDF images
+stay unchanged. Review faint text and intersections before selecting cleaned pages.
 
 The same option detects the diagonal St. Tammany “UNOFFICIAL” stamp on supported
 grayscale scans and recording covers. It removes the separate gray stamp from
