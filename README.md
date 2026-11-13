@@ -745,6 +745,8 @@ placement command is unchanged. No OCR or AI rewrites words. Intersections with
 text and signatures are estimates, so review and select cleaned pages before
 exporting. Unselected pages stay original. The packaged profile contains only
 watermark geometry and image-placement instructions, not customer document text.
+The same picker option also recognizes a single 2560 x 3312 Group 4 fax scan with the shorter “LICENSED TO DATA TREE” stamp. Its separate stamp-only profile removes connected fragments without retyping text or changing pixels outside the stamp. Nonmatching pages are kept.
+
 Regression coverage is in `tests/test_licensed_diagonal.py`.
 
 ## Hocking County outline

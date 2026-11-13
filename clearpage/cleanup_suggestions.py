@@ -30,7 +30,7 @@ REASONS = {
     'henry_red': 'The same red diagonal “NOT AN OFFICIAL COPY” stamp appears on multiple scanned pages.',
     'union_parish': 'Three pale purple UNOFFICIAL stamps match the Union Parish pattern.',
     'hocking_outline': 'Matches the outlined Hocking County Recorder “unofficial copy” text.',
-    'licensed_diagonal': 'Matches the diagonal “LICENSED TO FIRST AMERICAN DATA TREE LLC” stamp. Review crossings with words and signatures.',
+    'licensed_diagonal': 'Matches a diagonal Data Tree licensing stamp. Review crossings with words and signatures.',
     'kane_outline': 'Matches the Kane County diagonal dotted-outline “Unofficial” stamp. Review small intersections with text.',
     'screened_unofficial': 'Diagonal dotted “Un-Official” matches this scan. Removes the pattern and repairs damaged strokes; review the result.',
     'repeated_copy': 'Small gray copy words repeat across the page. Review overlaps and dark headers.',
@@ -84,7 +84,7 @@ def suggest(source, count, overlays, image_for, assets):
                 add('hocking_outline', index)
                 continue
             licensed = licensed_diagonal.scan_objects(page)
-            if licensed and licensed_diagonal.matches(licensed_diagonal.native_pixels(page, licensed)):
+            if licensed and licensed_diagonal.matches(licensed_diagonal.native_pixels(page, licensed), fax=len(licensed) == 1):
                 add('licensed_diagonal', index)
                 continue
             screened = screened_scans.scan_objects(page)

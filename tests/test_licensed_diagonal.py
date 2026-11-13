@@ -53,6 +53,21 @@ class LicensedDiagonalTests(unittest.TestCase):
         self.assertTrue(np.array_equal(result[~licensed.profile()[0]], a[~licensed.profile()[0]]))
         self.assertEqual(set(np.unique(result)), {0, 255})
 
+    def test_refined_fax_keeps_crossing_ink_and_drops_isolated_fragments(self):
+        mask, _ = licensed.fax_profile()
+        ink = np.zeros(mask.shape, 'uint8')
+        for y in range(480, 2600, 70):
+            x = round(y * 2560 / 3312 + 60)
+            cv2.putText(ink, 'Ink 203', (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, 1, 2)
+        # This fax pattern leaves a gap beside printed strokes.
+        gap = cv2.dilate(ink, np.ones((5, 5), 'uint8')).astype(bool)
+        marked = np.where(ink.astype(bool) | (mask & ~gap), 0, 255).astype('uint8')
+        result, info = licensed.clean_pixels(marked, fax=True)
+        self.assertTrue(info['refined_fax'])
+        np.testing.assert_array_equal(result == 0, ink.astype(bool))
+        for other in (np.roll(marked, 1, axis=1), result, example()[1]):
+            self.assertFalse(licensed.matches(other, fax=True))
+
     def test_nonmatches_and_cancellation(self):
         plain, marked = example()
         for scan in (plain, np.roll(marked, 1, axis=0), np.roll(marked, 1, axis=1),
