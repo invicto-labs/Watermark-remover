@@ -12,7 +12,9 @@ import CleanupSuggestions from './CleanupSuggestions';
 import CompressionDialog from './CompressionDialog';
 
 const presets = [
+  { id: 'diagonal_not_valid', title: 'Diagonal NOT VALID', description: 'Choose this for large gray “NOT VALID” lettering running from top left to bottom right. Include two different scans with the same stamp.', image: 'not-valid', tag: 'County scans' },
   { id: 'cole_preview', title: 'Cole County · crossed preview', description: 'Choose this for a large X with “Cole” on the left and “Preview” on the right. Check any words where the lines or labels crossed the text.', image: 'cole-preview', tag: 'County scans' },
+  { id: 'dekalb_outline', title: 'DeKalb County · outlined Unofficial', description: 'Choose this for a thin gray outline spelling Unofficial from the lower left to the upper right across the middle of a black-and-white scan.', image: 'dekalb-outline', tag: 'County scans' },
   { id: 'lake_outline', title: 'Lake County · hollow UNOFFICIAL COPY', description: 'Choose this when thin outlines spell UNOFFICIAL COPY from the upper left to the lower right. Preview where a letter crosses handwriting.', image: 'lake-outline', tag: 'County scans' },
   { id: 'henry_red', title: 'Henry County · red diagonal stamp', description: 'Use for Henry County scans with a red “NOT AN OFFICIAL COPY” stamp running from bottom left to top right. Include at least two different stamped pages in the same PDF.', image: 'henry-red', tag: 'County scans' },
   { id: 'union_parish', title: 'Union Parish · purple UNOFFICIAL', description: 'Choose this when purple UNOFFICIAL lettering appears at the top, middle, and bottom of the page. It also cleans the small repeated gray codes.', image: 'union-parish', tag: 'Parish scans' },
@@ -27,7 +29,7 @@ const presets = [
   { id: 'gemini_draft', title: 'Gemini AI draft · cloud', description: 'Try one difficult page with your Gemini key. Requires review.', image: 'repeated-diagonal', tag: 'Optional cloud' },
   { id: 'dotted_document', title: 'Dotted document / search package', description: 'Diagonal dotted lettering on scanned documents, including supported grayscale search packages.', image: 'dotted-document', tag: 'Documents' },
   { id: 'dotted_map', title: 'Maps & surveys', description: 'Dotted lettering across plats and survey maps.', image: 'dotted-map', tag: 'Maps' },
-  { id: 'unofficial_copy', title: 'Unofficial copy', description: 'Gray “Unofficial Copy” marks. Adjusts to each supported page’s size and angle.', image: 'unofficial-copy', tag: 'Scans' },
+  { id: 'unofficial_copy', title: 'Unofficial copy', description: 'Choose this for diagonal gray “Unofficial Copy” lettering, including letters made of tiny dots.', image: 'unofficial-copy', tag: 'Scans' },
   { id: 'nassau_unofficial', title: 'Nassau · Unofficial Copy', description: 'Pale diagonal lettering with a repeated square border. Review faint text, signatures and intersections after cleanup.', image: 'nassau', tag: 'County scans' },
   { id: 'preble_unofficial', title: 'Preble County · Unofficial Copy', description: 'Choose this for gray UNOFFICIAL COPY lettering that rises from left to right on a Preble County scan. It may look dotted when you zoom in.', image: 'preble', tag: 'County scans' },
   { id: 'overlay', title: 'Text & website marks', description: 'Choose this for a separate PDF stamp, such as large gray UNOFFICIAL letters over a scanned recorder page. Also supports Un-Official on maps.', image: 'overlay', tag: 'PDF overlays' },

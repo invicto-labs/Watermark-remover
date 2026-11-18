@@ -9,7 +9,7 @@ from clearpage.pdf.pdf_overlays import read_pdf
 from clearpage.presets.dotted_scans import replace_image
 from clearpage.presets import scan_patterns
 
-CACHE = 'native-gray-v5-aligned'
+CACHE = 'native-gray-v6-dotted'
 
 
 def scan_object(page):

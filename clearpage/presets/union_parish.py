@@ -10,6 +10,7 @@ from PIL import Image
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject
 
+from clearpage.presets import parish_cover
 from clearpage.presets.dotted_scans import replace_image
 from clearpage.presets.flat_gray_scans import scan_object as simple_scan
 from clearpage.presets.gray_scans import scan_object as opaque_scan
@@ -17,7 +18,7 @@ from clearpage.pdf.pdf_overlays import read_pdf
 from clearpage.presets.screened_scans import image_stream
 
 METHODS = ('union_parish',)
-CACHE = 'union-parish-v2'
+CACHE = 'union-parish-v3'
 
 
 def scan_object(page):
@@ -169,6 +170,16 @@ def clean_pixels(rgb, boxes, jpeg=False):
     return result
 
 
+def transparent_stamps(page):
+    image = parish_cover.cover_image(page)
+    if image is None:
+        return None
+    _, _, alpha, white = image
+    boxes = stamp_boxes(white, jpeg=True)
+    layer = parish_cover.word_layer(alpha, boxes)
+    return None if layer is None else (image, boxes, layer)
+
+
 def prepare(source, index, directory, cancelled=lambda: False):
     if cancelled():
         raise InterruptedError('Cancelled')
@@ -201,6 +212,13 @@ def prepare(source, index, directory, cancelled=lambda: False):
             replace_image(writer, writer.pages[0], name, stream)
             details.update(matched=True, changed=int(np.any(result != rgb,axis=2).sum()),
                            pattern_note='Removed the three purple UNOFFICIAL stamps and matching gray codes.')
+    else:
+        cover = transparent_stamps(page)
+        if cover is not None:
+            image, boxes, layer = cover
+            changed = parish_cover.clean(writer, image, boxes, layer, jpeg_codes(image[3]))
+            details.update(matched=True, changed=changed,
+                           pattern_note='Removed the purple stamps from the transparent recording cover.')
     temporary = target.with_suffix('.part')
     try:
         writer.write(temporary)

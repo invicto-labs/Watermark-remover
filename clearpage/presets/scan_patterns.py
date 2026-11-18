@@ -146,11 +146,18 @@ def gray_watermark_edges(result, selected, seed, cancelled=lambda: False):
 
 def unofficial_copy(image, assets, cancelled=lambda: False):
     if cancelled(): raise InterruptedError('Cancelled')
-    fixed = _unofficial_copy_fixed(image, assets, cancelled)
-    # Keep exact well-matched legacy layouts; realign weak or unknown layouts.
-    if fixed[2].get('pattern_match',0) >= .90:
-        return fixed
     from clearpage.presets.aligned_gray import clean
+    fixed = _unofficial_copy_fixed(image, assets, cancelled)
+    agreement = fixed[2].get('pattern_match', 0)
+    if agreement >= .98:
+        return fixed
+    # A dotted scan can match the solid template but retain visible fragments.
+    dotted = clean(image, assets, cancelled, dotted=True)
+    if dotted is not None:
+        return dotted
+    # Keep exact well-matched legacy layouts; realign weak or unknown layouts.
+    if agreement >= .90:
+        return fixed
     aligned = clean(image, assets, cancelled)
     return aligned if aligned is not None else fixed
 

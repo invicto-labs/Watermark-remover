@@ -28,6 +28,20 @@ def fixture():
 
 
 class AlignedGrayTests(unittest.TestCase):
+    def test_dotted_copy_preserves_crossing_strokes_and_ignores_unrelated_dots(self):
+        with np.load(ASSETS/'unofficial-copy-2024.npz') as data:
+            letters = data['template'].min(2) < 210
+        rows, cols = np.indices(letters.shape, sparse=True)
+        screen = np.where((rows + cols) % 2 == 0, 90, 245)
+        ink = (rows % 90 < 4) & (cols > 160) & (cols < 1350)
+        scan = np.where(ink, 10, np.where(letters, screen, 255)).astype('uint8')
+        result, _, details = scan_patterns.unofficial_copy(Image.fromarray(scan), ASSETS)
+        self.assertTrue(details['dotted_copy'])
+        self.assertTrue(np.all(result[ink] == 10))
+        self.assertGreater(np.mean(result[:, :, 0][letters & ~ink] > 245), .95)
+        unrelated = np.where((rows > 400) & (rows < 550), screen, 255).astype('uint8')
+        self.assertIsNone(aligned_gray.clean(Image.fromarray(unrelated), ASSETS, dotted=True))
+
     def test_shifted_pattern_and_preservation(self):
         a=fixture();result,mask,details=scan_patterns.unofficial_copy(Image.fromarray(a),ASSETS)
         self.assertEqual(details['alignment_version'],1)

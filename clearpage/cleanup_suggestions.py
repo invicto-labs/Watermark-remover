@@ -17,6 +17,8 @@ from clearpage.presets import licensed_diagonal
 from clearpage.presets import hocking_outline
 from clearpage.presets import union_parish
 from clearpage.presets import henry_red
+from clearpage.presets import dekalb_outline
+from clearpage.presets import diagonal_not_valid
 from clearpage.presets import lake_outline
 from clearpage.presets import cole_preview
 from clearpage.presets import preble_resampled
@@ -24,6 +26,8 @@ from clearpage.presets import search_package_dots
 from clearpage.pdf import page_polarity
 
 REASONS = {
+    'diagonal_not_valid': 'The same gray NOT VALID lettering appears diagonally on two scanned pages.',
+    'dekalb_outline': 'The pale outline spells Unofficial diagonally across the middle of the scan.',
     'cole_preview': 'The two diagonal lines, Cole and Preview labels, and preview notices match this scan.',
     'lake_outline': 'The hollow diagonal UNOFFICIAL COPY outline matches the Lake County scan.',
     'preble_unofficial': 'The diagonal UNOFFICIAL COPY lettering has the Preble County print pattern.',
@@ -60,8 +64,14 @@ def suggest(source, count, overlays, image_for, assets):
             page = reader.pages[index]
             if overlays[index].get('overlays'):
                 add('overlay', index)
+            if diagonal_not_valid.suggested(source, index):
+                add('diagonal_not_valid', index)
+                continue
             if cole_preview.suggested(source, index):
                 add('cole_preview', index)
+                continue
+            if dekalb_outline.suggested(source, index):
+                add('dekalb_outline', index)
                 continue
             if lake_outline.suggested(source, index):
                 add('lake_outline', index)
@@ -109,6 +119,9 @@ def suggest(source, count, overlays, image_for, assets):
             found = flat_gray_scans.scan_object(page)
             gray_found = gray_scans.scan_object(page)
             native = page.images[0].image.convert('RGB') if found or gray_found else None
+            if native is None and union_parish.transparent_stamps(page) is not None:
+                add('union_parish', index)
+                continue
             if native is not None:
                 if union_parish.stamp_boxes(np.asarray(native), (found or gray_found)[1].get('/Filter') == '/DCTDecode'):
                     add('union_parish', index)
